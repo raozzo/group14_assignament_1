@@ -35,18 +35,18 @@ def generate_launch_description():
 
     #this needs to be changed
     #Launch for the server
-    turtlenode_server = Node(
-        package='group14_ex4',
-        executable='turtlenode_server',  
-        output='screen'  # Shows print/log statements in the terminal
-    )
-
+    #turtlenode_server = Node(
+    #    package='group14_ex4',
+    #    executable='turtlenode_server',  
+  #      output='screen'  # Shows print/log statements in the terminal
+ #   )
+#
     #Launch for the clinet
-    burrow_client = Node(
-        package='group14_ex4',
-        executable='burrow_client',
-        output='screen'
-    )
+   # burrow_client = Node(
+    #    package='group14_ex4',
+     #   executable='burrow_client',
+     #   output='screen'
+    #)
 
     # --- 3. Return the LaunchDescription ---
     return LaunchDescription([
