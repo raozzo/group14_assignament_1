@@ -1,5 +1,11 @@
 # GROUP 14 - ASSIGNMENT 
 
+## LINKS
+
+1. [Assignment 1 repo](https://github.com/raozzo/group14_assignment_1)
+2. [Interfaces repo](https://github.com/raozzo/group14_interfaces)
+3. [Drive Folder](https://drive.google.com/drive/u/1/folders/1HIBnHfArfs1EaReJV7I966hIEcrrfIBU)
+
 ## Launch instruction 
 
 ```bash
