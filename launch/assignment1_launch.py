@@ -1,9 +1,9 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.actions import IncludeLaunchDescription
-from launch_ros.actions import Node
+from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
+from launch.actions import IncludeLaunchDescription, GroupAction
+from launch_ros.actions import Node, SetRemap
 
 def generate_launch_description():
     
@@ -29,8 +29,23 @@ def generate_launch_description():
         'camera_36h11.launch.yml'
     )
 
-    include_apriltag_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(apriltag_launch_file)
+
+    apriltag_group = GroupAction(
+        actions=[
+            # Remap the node's internal name ('image_rect') to your sim topic
+            # VERIFY: Use 'ros2 topic list' to check if your topic is 'image_raw' or 'image_rect'
+            SetRemap(src='image_rect', dst='/rgb_camera/image'),
+            SetRemap(src='camera_info', dst='/rgb_camera/camera_info'),
+
+            # Include the file required by the assignment
+            IncludeLaunchDescription(
+                AnyLaunchDescriptionSource(apriltag_launch_file),
+                # Enable sim time so TF works correctly in Gazebo
+                launch_arguments={
+                    'use_sim_time': 'true'
+                }.items() 
+            )
+        ]
     )
 
     #this needs to be changed
@@ -51,7 +66,8 @@ def generate_launch_description():
     # --- 3. Return the LaunchDescription ---
     return LaunchDescription([
         include_assignment_1_launch,
-        include_apriltag_launch,
+        #include_apriltag_launch,
+        apriltag_group
         #turtlenode_server,
         #burrow_client
     ])
