@@ -13,9 +13,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(rclcpp_action REQUIRED)
 
 ## Include
 include_directories(include)
@@ -24,6 +23,8 @@ include_directories(include)
 add_executable(cervellone src/cervellone.cpp)
 ament_target_dependencies(
   cervellone
+  nav2_msgs
+  rclcpp_action
   rclcpp
   tf2_ros
   tf2_geometry_msgs

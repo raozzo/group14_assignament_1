@@ -1,3 +1,8 @@
+//TODO: 
+//1. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
+//
+//
+
 //CPP LIBRARIES 
 #include <chrono>
 #include <memory>
@@ -13,6 +18,9 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "nav2_msgs/action/navigate_to_pose.hpp"
+
 #include "group14_assignment_1/utils.hpp"
 
 using namespace std::chrono_literals;
@@ -20,8 +28,12 @@ using namespace std::chrono_literals;
 class Cervellone : public rclcpp::Node
 {
   public:
-    // constructor
-    Cervellone(): Node("cervellone")
+  
+  using NavigateToPose = nav2_msgs::action::NavigateToPose;
+  using GoalHandleNav = rclcpp_action::ClientGoalHandle<NavigateToPose>;
+
+  // constructor
+  Cervellone(): Node("cervellone")
   {
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());    
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -34,13 +46,15 @@ class Cervellone : public rclcpp::Node
     // Give time for subscribers to connect, then publish
     // (A 2-second timer that runs ONCE is a simple way to do this)
     init_timer_ = this->create_wall_timer(10s, [this]() {
-            this->initialize_localization();
-            // Cancel this timer so it only runs once
-            this->init_timer_->cancel();
-        });
+      this->initialize_localization();
+      // Cancel this timer so it only runs once
+      this->init_timer_->cancel();
+    });
 
     timer_ = this->create_wall_timer(1.0s, std::bind(&Cervellone::calculate_goal, this));
-        //Maybe not needed
+    
+    // Initialize action for nv2pose
+    this->nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
 
     RCLCPP_INFO(this->get_logger(), "Cervellone pensa. aspettando le tags...");
   
@@ -50,6 +64,7 @@ class Cervellone : public rclcpp::Node
   //initialize robot position to do 2dPose
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pose_pub_;
   rclcpp::TimerBase::SharedPtr init_timer_;
+  rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
 
   void initialize_localization()
   {
@@ -75,11 +90,9 @@ class Cervellone : public rclcpp::Node
     init_pose_pub_->publish(msg);
   }
 
-  //Now tha that we have the 2d pose we can find the tags
+  //TODO: Now tha that we have the 2d pose we can find the tags
     //1. read apriltag 
-    
-    //2. calculate the median point between apriltag 
-
+    //2. calculate the median point between apriltag
     //3. send goal to nav
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -90,8 +103,60 @@ class Cervellone : public rclcpp::Node
   // we don't need to redo the calculation if already done 
   bool goal_calculated_ = false;    
   std::string tag1_frame_ = "tag36h11:10"; 
-  std::string tag2_frame_ = "tag36h11:1"; 
-  std::string world_frame_ = "odom";
+  std::string tag2_frame_ = "tag36h11:1";
+
+  //FIX: THIS NEED TO BE FIXED (SEE TODO header)
+  std::string world_frame_ = "map";
+  //std::string world_frame_ = "odom";
+
+  // start navigation to goal 
+  void send_goal_to_nav2(geometry_msgs::msg::PoseStamped goal_pose)
+  {
+    if (!this->nav_client_->wait_for_action_server(std::chrono::seconds(5))) {
+      RCLCPP_ERROR(this->get_logger(), "NAV ACTION NOT READY");
+      return;
+    }
+
+    auto goal_msg = NavigateToPose::Goal();
+    goal_msg.pose = goal_pose; 
+
+    RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
+
+    auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
+        
+    // Callback when goal is accepted/rejected
+    send_goal_options.goal_response_callback =
+    [this](const GoalHandleNav::SharedPtr & goal_handle) {
+      if (!goal_handle) {
+        RCLCPP_ERROR(this->get_logger(), "GOAL REJECTKD");
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+      }
+    };
+
+    //NOTE:
+    // Callback when navigation is finished
+    send_goal_options.result_callback =
+    [this](const GoalHandleNav::WrappedResult & result) {
+     switch (result.code) {
+        case rclcpp_action::ResultCode::SUCCEEDED:
+          RCLCPP_INFO(this->get_logger(), "Navigation SUCCEEDED!");
+          break;
+        case rclcpp_action::ResultCode::ABORTED:
+          RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
+          break;
+        case rclcpp_action::ResultCode::CANCELED:
+          RCLCPP_ERROR(this->get_logger(), "Navigation was CANCELED");
+          break;
+        default:
+          RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+          break;
+      }
+    };
+
+    // Send the goal
+    this->nav_client_->async_send_goal(goal_msg, send_goal_options);
+  };
 
   void calculate_goal()
   {
@@ -127,14 +192,27 @@ class Cervellone : public rclcpp::Node
       //calculate the midpoint
       double mid_x = (t1.transform.translation.x + t2.transform.translation.x) / 2.0;
       double mid_y = (t1.transform.translation.y + t2.transform.translation.y) / 2.0;
+      
+      //creation of the pose goal
+      geometry_msgs::msg::PoseStamped goal_pose;
+      goal_pose.header.stamp = this->get_clock()->now();
+      goal_pose.header.frame_id = world_frame_;
             
+      goal_pose.pose.position.x = mid_x;
+      goal_pose.pose.position.y = mid_y;
+      goal_pose.pose.position.z = 0.0;
+      goal_pose.pose.orientation.w = 1.0;
+
       //now i have to publish the postion to nav 2
+      send_goal_to_nav2(goal_pose);
       
       //for now i only print in terminal do i can grep it and check      
       RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<", mid_x, mid_y);
       
-      //commented this line for DEBUG so i can see the prints 
-      // goal_calculated_ = true;
+      //commente this line for DEBUG so it's easier to see the prints 
+      //FIX: if this is true (goal calculated one time) it get lost  
+      //GOAL REJECTED 
+      //goal_calculated_ = true;
     }
   } 
 };
