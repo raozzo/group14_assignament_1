@@ -17,7 +17,12 @@ def generate_launch_description():
     )
 
     include_assignment_1_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(assignment_1_launch_file)
+        PythonLaunchDescriptionSource(assignment_1_launch_file),
+        launch_arguments={
+            'use_sim_time': 'true',
+            #from the tutor launch we can see it exposes ab autostart flag for the nav stack
+            'autostart': 'True'
+        }.items()
     )
     
     # Launch for apriltag 
