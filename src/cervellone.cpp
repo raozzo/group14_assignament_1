@@ -89,7 +89,7 @@ class Cervellone : public rclcpp::Node
 
   // we don't need to redo the calculation if already done 
   bool goal_calculated_ = false;    
-  std::string tag1_frame_ = "tag36h11:0"; 
+  std::string tag1_frame_ = "tag36h11:10"; 
   std::string tag2_frame_ = "tag36h11:1"; 
   std::string world_frame_ = "odom";
 
