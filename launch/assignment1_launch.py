@@ -55,11 +55,11 @@ def generate_launch_description():
 
     #this needs to be changed
     #Launch for the server
-    #turtlenode_server = Node(
-    #    package='group14_ex4',
-    #    executable='turtlenode_server',  
-  #      output='screen'  # Shows print/log statements in the terminal
- #   )
+    cervellone = Node(
+        package='group14_assignment_1',
+        executable='cervellone',  
+        output='screen'  # Shows print/log statements in the terminal
+    )
 #
     #Launch for the clinet
    # burrow_client = Node(
@@ -72,8 +72,8 @@ def generate_launch_description():
     return LaunchDescription([
         include_assignment_1_launch,
         #include_apriltag_launch,
-        apriltag_group
-        #turtlenode_server,
+        apriltag_group,
+        cervellone,
         #burrow_client
     ])
 

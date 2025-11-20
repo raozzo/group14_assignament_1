@@ -41,7 +41,6 @@ class Cervellone : public rclcpp::Node
 
     timer_ = this->create_wall_timer(1.0s, std::bind(&Cervellone::calculate_goal, this));
         //Maybe not needed
-    //timer_ = this->create_wall_timer(1.0s, std::bind(&AssignmentManager::calculate_goal, this));
 
     RCLCPP_INFO(this->get_logger(), "Cervellone pensa. aspettando le tags...");
   
@@ -59,9 +58,9 @@ class Cervellone : public rclcpp::Node
         msg.header.frame_id = "map";
 
         // Set the known spawn coordinates from the tutor's file
-        msg.pose.pose.position.x = -8.29;
-        msg.pose.pose.position.y = 1.87;
-        msg.pose.pose.position.z = 0.01;
+        msg.pose.pose.position.x = 0; // -8.29;
+        msg.pose.pose.position.y =0; //1.87;
+        msg.pose.pose.position.z =0; //elsee0.01;
         
         // Set orientation (Assuming facing 'East' / 0.0 yaw)
         // If the robot spawns rotated, you need the correct quaternion here
