@@ -17,6 +17,10 @@ find_package(tf2_geometry_msgs REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
+## Include
+include_directories(include)
+
+# cervellone .cpp
 add_executable(cervellone src/cervellone.cpp)
 ament_target_dependencies(
   cervellone
@@ -32,6 +36,12 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+#install include
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+#install cervellone
 install(TARGETS
   cervellone 
   DESTINATION lib/${PROJECT_NAME}
