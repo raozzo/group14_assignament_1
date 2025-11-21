@@ -66,6 +66,13 @@ def generate_launch_description():
         executable='cervellone',  
         output='screen'  # Shows print/log statements in the terminal
     )
+
+    cylinders_finder = Node(
+        package='group14_assignment_1',
+        executable='cylinders_finder',  
+        output='screen'
+    )
+
 #
     #Launch for the clinet
    # burrow_client = Node(
@@ -79,6 +86,7 @@ def generate_launch_description():
         include_assignment_1_launch,
         apriltag_group,
         cervellone,
+        cylinders_finder
         #burrow_client
     ])
 

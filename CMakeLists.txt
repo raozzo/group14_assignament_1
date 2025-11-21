@@ -10,11 +10,14 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(group14_interfaces REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
+
 
 ## Include
 include_directories(include)
@@ -31,6 +34,12 @@ ament_target_dependencies(
   geometry_msgs
 )
 
+add_executable(cylinders_finder src/cylinders_finder.cpp)
+ament_target_dependencies(
+  cylinders_finder
+  rclcpp tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs group14_interfaces
+)
+
 # Install launch files
 install(DIRECTORY
   launch
@@ -45,7 +54,7 @@ install(DIRECTORY include/
 
 #install cervellone
 install(TARGETS
-  cervellone 
+  cervellone cylinders_finder
   DESTINATION lib/${PROJECT_NAME}
 )
 
