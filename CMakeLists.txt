@@ -34,6 +34,7 @@ ament_target_dependencies(
 # Install launch files
 install(DIRECTORY
   launch
+  apriltag_ros
   DESTINATION share/${PROJECT_NAME}
 )
 

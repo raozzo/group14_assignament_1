@@ -26,10 +26,11 @@ def generate_launch_description():
     )
     
     # Launch for apriltag 
-    apriltag_package_share = get_package_share_directory('apriltag_ros')
+    apriltag_package_share = get_package_share_directory('group14_assignment_1')
 
     apriltag_launch_file = os.path.join(
         apriltag_package_share,
+        'apriltag_ros',
         'launch',
         'camera_36h11.launch.yml'
     )
@@ -43,7 +44,7 @@ def generate_launch_description():
             SetRemap(src='camera_info', dst='/rgb_camera/camera_info'),
             
             #resize
-            SetParameter(name='size', value='0.05'),
+            #SetParameter(name='size', value='0.05'),
             
             # Include the file required by the assignment
             IncludeLaunchDescription(
@@ -56,17 +57,6 @@ def generate_launch_description():
         ]
     )
 
-    ##HACK:force_tag_size
-    
-    #force_tag_size = TimerAction(
-    #    period=5.0,
-    #    actions=[
-    #        ExecuteProcess(
-    #            cmd=['ros2', 'param', 'set', '/apriltag/apriltag', 'size', '0.05'],
-    #            output='screen'
-    #        )
-    #    ]
-    #)
 
 
     #this needs to be changed
@@ -87,7 +77,6 @@ def generate_launch_description():
     # --- 3. Return the LaunchDescription ---
     return LaunchDescription([
         include_assignment_1_launch,
-        #include_apriltag_launch,
         apriltag_group,
         cervellone,
         #burrow_client
