@@ -101,7 +101,7 @@ class Cervellone : public rclcpp::Node
   rclcpp::TimerBase::SharedPtr timer_;
 
   // we don't need to redo the calculation if already done 
-  bool goal_calculated_ = false;    
+  bool goal_sent_ = false;
   std::string tag1_frame_ = "tag36h11:10"; 
   std::string tag2_frame_ = "tag36h11:1";
 
@@ -160,30 +160,32 @@ class Cervellone : public rclcpp::Node
 
   void calculate_goal()
   {
-    if (goal_calculated_) {return; }
-
+    if (goal_sent_) { return; } 
+    
     geometry_msgs::msg::TransformStamped t1, t2;
     bool t1_found = false;
     bool t2_found = false;
+
     
     // to DEBug i try to find each singular tag, then it can be slimmed 
     // Try to find Tag 1
-    try {
-      t1 = tf_buffer_->lookupTransform(world_frame_, tag1_frame_, tf2::TimePointZero);
-      t1_found = true;
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                "Could not find %s: %s", tag1_frame_.c_str(), ex.what());
-    }
+      try {
+        t1 = tf_buffer_->lookupTransform(world_frame_, tag1_frame_, tf2::TimePointZero);
+        t1_found = true;
+      }  catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
+                  "Could not find %s: %s", tag1_frame_.c_str(), ex.what());
+      }
 
-    // Try to find Tag 2
-    try {
-      t2 = tf_buffer_->lookupTransform(world_frame_, tag2_frame_, tf2::TimePointZero);
-      t2_found = true;
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                "Could not find %s: %s", tag2_frame_.c_str(), ex.what());
-    }
+       // Try to find Tag 2
+      try {
+        t2 = tf_buffer_->lookupTransform(world_frame_, tag2_frame_, tf2::TimePointZero);
+        t2_found = true;
+      } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
+                 "Could not find %s: %s", tag2_frame_.c_str(), ex.what());
+      }
+    
 
     // If BOTH are found
     if (t1_found && t2_found) {
@@ -204,15 +206,16 @@ class Cervellone : public rclcpp::Node
       goal_pose.pose.orientation.w = 1.0;
 
       //now i have to publish the postion to nav 2
-      send_goal_to_nav2(goal_pose);
+      if (this->nav_client_->action_server_is_ready()) {
+        send_goal_to_nav2(goal_pose);
+        goal_sent_ = true; 
+      } else {
+        RCLCPP_WARN(this->get_logger(), "Nav2 not ready yet, retrying...");
+      }
       
       //for now i only print in terminal do i can grep it and check      
       RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<", mid_x, mid_y);
       
-      //commente this line for DEBUG so it's easier to see the prints 
-      //FIX: if this is true (goal calculated one time) it get lost  
-      //GOAL REJECTED 
-      //goal_calculated_ = true;
     }
   } 
 };
