@@ -1,7 +1,11 @@
 //TODO: 
-//1. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
-//
-//
+//  2. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
+//  3. errore sincronizzazione camera
+
+//DONE:
+//  1. correggere logica di nav to goal
+//  
+
 
 //CPP LIBRARIES 
 #include <chrono>
@@ -90,7 +94,7 @@ class Cervellone : public rclcpp::Node
     init_pose_pub_->publish(msg);
   }
 
-  //TODO: Now tha that we have the 2d pose we can find the tags
+  //DONE: Now tha that we have the 2d pose we can find the tags
     //1. read apriltag 
     //2. calculate the median point between apriltag
     //3. send goal to nav
