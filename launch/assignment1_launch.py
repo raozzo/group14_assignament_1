@@ -2,8 +2,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
-from launch.actions import IncludeLaunchDescription, GroupAction
-from launch_ros.actions import Node, SetRemap
+from launch.actions import IncludeLaunchDescription, GroupAction, TimerAction, ExecuteProcess
+from launch_ros.actions import Node, SetRemap, SetParameter
 
 def generate_launch_description():
     
@@ -41,7 +41,10 @@ def generate_launch_description():
             # VERIFY: Use 'ros2 topic list' to check if your topic is 'image_raw' or 'image_rect'
             SetRemap(src='image_rect', dst='/rgb_camera/image'),
             SetRemap(src='camera_info', dst='/rgb_camera/camera_info'),
-
+            
+            #resize
+            SetParameter(name='size', value='0.05'),
+            
             # Include the file required by the assignment
             IncludeLaunchDescription(
                 AnyLaunchDescriptionSource(apriltag_launch_file),
@@ -52,6 +55,19 @@ def generate_launch_description():
             )
         ]
     )
+
+    ##HACK:force_tag_size
+    
+    #force_tag_size = TimerAction(
+    #    period=5.0,
+    #    actions=[
+    #        ExecuteProcess(
+    #            cmd=['ros2', 'param', 'set', '/apriltag/apriltag', 'size', '0.05'],
+    #            output='screen'
+    #        )
+    #    ]
+    #)
+
 
     #this needs to be changed
     #Launch for the server
