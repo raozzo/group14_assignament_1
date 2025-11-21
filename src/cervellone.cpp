@@ -130,6 +130,7 @@ class Cervellone : public rclcpp::Node
       if (!goal_handle) {
         RCLCPP_ERROR(this->get_logger(), "GOAL REJECTKD");
       } else {
+        goal_sent_ = true;
         RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
       }
     };
@@ -208,7 +209,7 @@ class Cervellone : public rclcpp::Node
       //now i have to publish the postion to nav 2
       if (this->nav_client_->action_server_is_ready()) {
         send_goal_to_nav2(goal_pose);
-        goal_sent_ = true; 
+        //goal_sent_ = true; 
       } else {
         RCLCPP_WARN(this->get_logger(), "Nav2 not ready yet, retrying...");
       }
