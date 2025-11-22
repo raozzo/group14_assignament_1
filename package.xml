@@ -3,11 +3,13 @@
 <package format="3">
   <name>group14_assignment_1</name>
   <version>0.0.0</version>
-  <description>Group14_assignement1</description>
+  <description>Group14_assignment1</description>
   <maintainer email="lucara8@gmail.com">Group14</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>eigen3_cmake_module</build_depend>
+  <build_depend>eigen</build_depend>
   
   <depend>rclcpp</depend>
   <depend>tf2</depend>

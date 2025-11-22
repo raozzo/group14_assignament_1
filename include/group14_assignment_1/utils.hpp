@@ -23,6 +23,16 @@ namespace group14
             : range(range_), angle(angle_), index(index_), point(point_) {}
     };
 
+    struct Circle
+    {
+        float x_center;
+        float y_center;
+        float r;
+
+        Circle(float x_center_, float y_center_, float r_)
+            : x_center(x_center_), y_center(y_center_), r(r_) {}
+    };
+
     constexpr double PI = 3.14159265358979323846;
 }
 

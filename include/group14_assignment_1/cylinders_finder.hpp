@@ -70,6 +70,18 @@ private:
     static double compute_dynamic_D_max_(float prev_valid_range, float angle_increment,
                                          float INCIDENCE_ANGLE_THRESHOLD, float NOISE_FLOOR);
 
+    /**
+     * @brief Estimates circle parameters (center and radius) by fitting a cluster of points
+     * using Kasa's algebraic method (least squares). See I. Kåsa, "A circle fitting procedure and its
+     * error analysis," in IEEE Transactions on Instrumentation and Measurement, vol. IM-25, no. 1, pp. 8-14,
+     * March 1976
+     * @param cluster Reference to a vector of group14::RangePoint representing the points of the
+     * cluster to fit.
+     * @return a `group14::Circle` object containing the center coordinates (x, y) and the radius
+     * if the calculation is successful, `std::nullopt` otherwise.
+     */
+    static std::optional<group14::Circle> fit_circle_Kasa(std::vector<group14::RangePoint> &cluster);
+
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
@@ -77,7 +89,7 @@ private:
     std::shared_ptr<rclcpp::Publisher<group14_interfaces::msg::TablesArray, std::allocator<void>>> tables_publisher_;
 
     const float INCIDENCE_ANGLE_THRESHOLD = 0.1745; // rad, i.e. 10deg
-    const float SCAN_NOISE_FLOOR = 0.02;            // i.e. 2cm
+    const float SCAN_NOISE_FLOOR = 0.01;            // i.e. 1cm
 };
 
 #endif

@@ -17,10 +17,15 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(eigen3_cmake_module REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 
 ## Include
-include_directories(include)
+include_directories(
+  include
+  ${Eigen3_INCLUDE_DIRS}
+)
 
 # cervellone .cpp
 add_executable(cervellone src/cervellone.cpp)
@@ -39,6 +44,7 @@ ament_target_dependencies(
   cylinders_finder
   rclcpp tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs group14_interfaces
 )
+target_link_libraries(cylinders_finder Eigen3::Eigen)
 
 # Install launch files
 install(DIRECTORY

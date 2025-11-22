@@ -1,6 +1,7 @@
 #include "group14_assignment_1/cylinders_finder.hpp"
 
 #include <cmath>
+#include <Eigen/Dense>
 
 CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
     : Node("cylinders_finder_node", options)
@@ -31,6 +32,15 @@ void CylindersFinder::process_scan_(const sensor_msgs::msg::LaserScan::SharedPtr
     /* ranges clustering */
     std::vector<std::vector<group14::RangePoint>> clusters;
     cluster_ranges_(scan, clusters);
+
+    /* try to fit a circle to every cluster and validate the result */
+    for (std::vector<group14::RangePoint> &cluster : clusters)
+    {
+        std::optional<group14::Circle> opt_circle = fit_circle_Kasa(cluster);
+        if (opt_circle.has_value())
+        {
+        }
+    }
 }
 
 void CylindersFinder::cluster_ranges_(
@@ -81,16 +91,16 @@ void CylindersFinder::cluster_ranges_(
     group14::RangePoint rp_2 = clusters.front().front();
     double euclidean_dist = std::hypot(rp_2.point.point.x - rp_1.point.point.x,
                                        rp_2.point.point.y - rp_1.point.point.y);
-    double D_max = compute_dynamic_D_max_(rp_1.range, (rp_2.angle + group14::PI - rp_1.angle),
+    double D_max = compute_dynamic_D_max_(rp_1.range, (rp_2.angle + 2 * group14::PI - rp_1.angle),
                                           INCIDENCE_ANGLE_THRESHOLD, SCAN_NOISE_FLOOR);
     if (euclidean_dist > D_max)
         merge_cyclic_clusters_(clusters);
 
-    // Remove clusters having less than 3 points
+    // Remove clusters having less than 5 points
     clusters.erase(
         std::remove_if(clusters.begin(), clusters.end(),
                        [](std::vector<group14::RangePoint> &x)
-                       { return x.size() < 3; }),
+                       { return x.size() < 5; }),
         clusters.end());
 }
 
@@ -120,6 +130,43 @@ double CylindersFinder::compute_dynamic_D_max_(
     float INCIDENCE_ANGLE_THRESHOLD, float NOISE_FLOOR)
 {
     return (prev_valid_range * sin(angle_increment)) / sin(INCIDENCE_ANGLE_THRESHOLD - angle_increment) + NOISE_FLOOR;
+}
+
+std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa(std::vector<group14::RangePoint> &cluster)
+{
+    int n_points = static_cast<int>(cluster.size());
+
+    // for each point (x, y):
+    // (x - x_c)^2 + (y - y_c)^2 = R^2
+    // (x^2 - 2xx_c + x_c^2) + (y^2 - 2yy_c + y_c^2) = R^2
+    // x*(2x_c) + y*(2y_c) + 1*(R^2 - x_c^2 - y_c^2) = x^2 + y^2
+    // A*X = b
+
+    Eigen::MatrixXd A(n_points, 3);
+    Eigen::VectorXd b(n_points);
+    for (int i = 0; i < n_points; ++i)
+    {
+        double x = cluster[i].point.point.x;
+        double y = cluster[i].point.point.y;
+        A(i, 0) = x;
+        A(i, 1) = y;
+        A(i, 2) = 1.0;
+        b(i) = x * x + y * y;
+    }
+
+    // Least squares solution of the A*X = b system
+    Eigen::Vector3d X = A.colPivHouseholderQr().solve(b);
+
+    // Circle params decoding
+    float x_center = X(0) / 2.0;
+    float y_center = X(1) / 2.0;
+    float radius = std::sqrt(X(2) + x_center * x_center + y_center * y_center); // X(2) = R^2 - x_c^2 - y_c^2
+
+    // Radius validation
+    if (std::isnan(radius))
+        return std::nullopt;
+
+    return group14::Circle(x_center, y_center, radius);
 }
 
 int main(int argc, char **argv)
