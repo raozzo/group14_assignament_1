@@ -25,12 +25,20 @@ namespace group14
 
     struct Circle
     {
-        float x_center;
-        float y_center;
+        geometry_msgs::msg::PointStamped center;
         float r;
 
-        Circle(float x_center_, float y_center_, float r_)
-            : x_center(x_center_), y_center(y_center_), r(r_) {}
+        Circle(float x_center, float y_center, float r_, std_msgs::msg::Header header)
+            : r(r_)
+        {
+            center.header = header;
+            center.point.x = x_center;
+            center.point.y = y_center;
+            center.point.z = 0;
+        }
+
+        Circle(geometry_msgs::msg::PointStamped center_, float r_)
+            : center(center_), r(r_) {}
     };
 
     constexpr double PI = 3.14159265358979323846;

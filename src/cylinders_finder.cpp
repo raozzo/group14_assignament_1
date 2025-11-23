@@ -19,29 +19,35 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
     lidar_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         "/scan",
         rclcpp::QoS(10),
-        std::bind(&CylindersFinder::process_scan_, this, std::placeholders::_1));
+        std::bind(&CylindersFinder::process_scan, this, std::placeholders::_1));
     */
 }
 
-void CylindersFinder::process_scan_(const sensor_msgs::msg::LaserScan::SharedPtr scan)
+void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr scan)
 {
     int scan_dim = static_cast<int>(scan->ranges.size());
     if (scan_dim == 0)
         return;
 
-    /* ranges clustering */
-    std::vector<std::vector<group14::RangePoint>> clusters;
-    cluster_ranges_(scan, clusters);
-
-    /* try to fit a circle to every cluster and validate the result */
-    for (std::vector<group14::RangePoint> &cluster : clusters)
+    /* try a conversion to map reference frame */
+    std::optional<geometry_msgs::msg::TransformStamped> tf_to_map = transform_(scan->header, "map");
+    if (tf_to_map.has_value())
     {
-        std::optional<group14::Circle> opt_circle = fit_circle_Kasa(cluster);
-        if (opt_circle.has_value())
-        {
-        }
+        /* ranges clustering */
+        std::vector<std::vector<group14::RangePoint>> clusters;
+        cluster_ranges_(scan, clusters);
+
+        /* try to fit a circle to every cluster */
+        for (std::vector<group14::RangePoint> &cluster : clusters)
+            look_for_tables_(cluster, tf_to_map.value());
+    }
+    else
+    {
+        return; // if the scan cannot be referenced to the map frame, ignore it
     }
 }
+
+/* CYLINDERS FINDER - PRIVATE METHODS */
 
 void CylindersFinder::cluster_ranges_(
     const sensor_msgs::msg::LaserScan::SharedPtr &scan,
@@ -132,7 +138,46 @@ double CylindersFinder::compute_dynamic_D_max_(
     return (prev_valid_range * sin(angle_increment)) / sin(INCIDENCE_ANGLE_THRESHOLD - angle_increment) + NOISE_FLOOR;
 }
 
-std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa(std::vector<group14::RangePoint> &cluster)
+void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &cluster,
+                                       geometry_msgs::msg::TransformStamped &tf)
+{
+    // Try to fit a circle to the cluster points with Kasa mathod
+    std::optional<group14::Circle> circle = fit_circle_Kasa_(cluster);
+
+    // If the cluster well represents a circular arc
+    if (circle.has_value() && validate_circle_fit_(cluster, circle.value()))
+    {
+        // Build a new circle object (i.e. candidate table) with respect to the map frame
+        geometry_msgs::msg::PointStamped center_wrt_map;
+        tf2::doTransform(circle.value().center, center_wrt_map, tf);
+        group14::Circle candidate_table(center_wrt_map, circle.value().r);
+
+        // Compare this candidate table with already seen tables
+        bool match_found = false;
+        for (Table &t : tables_)
+        {
+            if (Table::is_same_table(t, candidate_table))
+            {
+                // Compute the distance between the robot [(0, 0) in the laserscan frame] and the circle center
+                double distance = std::hypot(circle.value().center.point.x, circle.value().center.point.y);
+
+                // Update the table estimate
+                t.update(candidate_table, distance, static_cast<int>(cluster.size()));
+
+                match_found = true;
+                break;
+            }
+        }
+
+        if (!match_found)
+        {
+            // New table discovered
+            tables_.emplace_back(candidate_table);
+        }
+    }
+}
+
+std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa_(const std::vector<group14::RangePoint> &cluster)
 {
     int n_points = static_cast<int>(cluster.size());
 
@@ -166,7 +211,77 @@ std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa(std::vector<grou
     if (std::isnan(radius))
         return std::nullopt;
 
-    return group14::Circle(x_center, y_center, radius);
+    return group14::Circle(x_center, y_center, radius, cluster.front().point.header);
+}
+
+bool CylindersFinder::validate_circle_fit_(const std::vector<group14::RangePoint> &cluster,
+                                           const group14::Circle &circle)
+{
+    // Radius check
+    if (circle.r < MIN_RADIUS || circle.r > MAX_RADIUS)
+        return false;
+
+    // MSE check
+    int n_points = static_cast<int>(cluster.size());
+    double MSE = 0;
+    for (const group14::RangePoint &p : cluster)
+        MSE += std::pow(std::hypot(p.point.point.x - circle.center.point.x, p.point.point.y - circle.center.point.y) - circle.r, 2);
+    MSE /= n_points;
+
+    if (MSE > MSE_THRESHOLD)
+        return false;
+
+    return true;
+}
+
+std::optional<geometry_msgs::msg::TransformStamped> CylindersFinder::transform_(
+    std_msgs::msg::Header header,
+    const std::string dst_frame_id)
+{
+    try
+    {
+        geometry_msgs::msg::TransformStamped tf = tf_buffer_->lookupTransform(
+            dst_frame_id,
+            header.frame_id,
+            header.stamp,
+            rclcpp::Duration::from_seconds(0.1));
+        return tf;
+    }
+    catch (const tf2::TransformException &ex)
+    {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Transform not available: %s", ex.what());
+        return std::nullopt;
+    }
+}
+
+/* TABLE CLASS */
+
+Table::Table(group14::Circle circle_, double initial_weight, int num_detections_)
+    : circle(circle_), cumulative_weight(initial_weight), num_detections(num_detections_) {}
+
+void Table::update(const group14::Circle &new_circle, double distance, int cluster_size)
+{
+    // Compute a weight for the current measure (proportional to the number of points in the cluster,
+    // inversely proportional to the distance at which the scan has been taken)
+    double weight = cluster_size / (distance + 0.01);
+
+    // Update the cumulative weight
+    cumulative_weight += weight;
+
+    // Update circle parameters estimate
+    float x = circle.center.point.x; // old estimate of x
+    float y = circle.center.point.y; // old estimate of y
+    float r = circle.r;              // old estimate of r
+    circle.center.point.x = x + (weight / cumulative_weight) * (new_circle.center.point.x - x);
+    circle.center.point.y = y + (weight / cumulative_weight) * (new_circle.center.point.y - y);
+    circle.r = r + (weight / cumulative_weight) * (new_circle.r - r);
+
+    num_detections++;
+}
+
+bool Table::is_same_table(const Table &t, const group14::Circle &c)
+{
+    return std::hypot(t.circle.center.point.x - c.center.point.x, t.circle.center.point.y - c.center.point.y) < DISTANCE_THRESHOLD;
 }
 
 int main(int argc, char **argv)

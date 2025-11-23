@@ -4,25 +4,55 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "group14_assignment_1/utils.hpp"
 #include "group14_interfaces/msg/tables_array.hpp"
+
+class Table
+{
+public:
+    Table(group14::Circle circle_, double initial_weight = 0.0, int num_detections_ = 1);
+
+    /**
+     * @brief Updates the table estimation using a recursive weighted average.
+     * @param new_circle The new circle measurement to merge into the current estimate.
+     * @param distance The distance between the robot and the detected circle center.
+     * @param cluster_size The number of LIDAR points used to fit the new circle.
+     */
+    void update(const group14::Circle &new_circle, double distance, int cluster_size);
+
+    /**
+     * @brief Checks if a candidate circle belongs to an already tracked table.
+     * @param t The existing tracked table.
+     * @param c The new candidate circle.
+     * @return true if the candidate matches the tracked table.
+     * @return false otherwise.
+     */
+    static bool is_same_table(const Table &t, const group14::Circle &c);
+
+    group14::Circle circle;
+    double cumulative_weight;
+    int num_detections;
+
+    static constexpr float DISTANCE_THRESHOLD = 0.25;
+};
 
 class CylindersFinder : public rclcpp::Node
 {
 public:
     explicit CylindersFinder(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
 
-private:
     /**
      * @brief Main callback for Lidar data processing and table tracking update.
      * Performs segmentation of laser points into clusters, identifies potential circular
      * shapes, and updates the state of detected tables.
      * @param scan Input LaserScan message.
      */
-    void process_scan_(const sensor_msgs::msg::LaserScan::SharedPtr scan);
+    void process_scan(const sensor_msgs::msg::LaserScan::SharedPtr scan);
 
+private:
     /**
      * @brief Segments the raw LaserScan data into distinct clusters of points.
      * Iterates through the laser ranges and groups consecutive points into clusters
@@ -35,6 +65,16 @@ private:
     void cluster_ranges_(
         const sensor_msgs::msg::LaserScan::SharedPtr &scan,
         std::vector<std::vector<group14::RangePoint>> &clusters);
+
+    /**
+     * @brief Processes a cluster to detect, validate, and track cylindrical tables.
+     * Executes the detection pipeline: fitting (Kåsa), validation (radius/MSE),
+     * transformation to map frame (using the provided TF), and tables tracking.
+     * @param cluster The vector of points representing the segmented scan data.
+     * @param tf The pre-calculated transform from the laser frame to the map frame.
+     */
+    void look_for_tables_(const std::vector<group14::RangePoint> &cluster,
+                          geometry_msgs::msg::TransformStamped &tf);
 
     /**
      * @brief Merges the last cluster into the first to handle LIDAR wrap-around.
@@ -80,7 +120,28 @@ private:
      * @return a `group14::Circle` object containing the center coordinates (x, y) and the radius
      * if the calculation is successful, `std::nullopt` otherwise.
      */
-    static std::optional<group14::Circle> fit_circle_Kasa(std::vector<group14::RangePoint> &cluster);
+    static std::optional<group14::Circle> fit_circle_Kasa_(const std::vector<group14::RangePoint> &cluster);
+
+    /**
+     * @brief Validates a candidate circle against the point cluster using the estimated radius
+     * (rejects noise (too small radius) or walls (too large radius)) and MSE
+     * @param cluster The cluster of points to validate against
+     * @param circle The estimated circle parameters (center and radius)
+     * @return true if the circle meets both radius and MSE criteria.
+     * @return false Otherwise.
+     */
+    bool validate_circle_fit_(const std::vector<group14::RangePoint> &cluster,
+                              const group14::Circle &circle);
+
+    /**
+     * @brief Queries the TF2 buffer to find the transform from the source frame in `header`
+     * to the `dst_frame_id` at the timestamp `header.stamp`.
+     * @param header The header containing the source frame ID and the timestamp.
+     * @param dst_frame_id The target frame ID (e.g., "map").
+     * @return std::optional containing the TransformStamped if successful, or std::nullopt if the lookup fails.
+     */
+    std::optional<geometry_msgs::msg::TransformStamped> transform_(const std_msgs::msg::Header header,
+                                                                   const std::string dst_frame_id);
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -88,8 +149,13 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_subscription_;
     std::shared_ptr<rclcpp::Publisher<group14_interfaces::msg::TablesArray, std::allocator<void>>> tables_publisher_;
 
+    std::vector<Table> tables_; // Detected tables
+
     const float INCIDENCE_ANGLE_THRESHOLD = 0.1745; // rad, i.e. 10deg
     const float SCAN_NOISE_FLOOR = 0.01;            // i.e. 1cm
+    const float MIN_RADIUS = 0.02;
+    const float MAX_RADIUS = 0.50;
+    const double MSE_THRESHOLD = 0.005;
 };
 
 #endif
