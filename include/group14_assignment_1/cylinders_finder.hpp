@@ -7,6 +7,8 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
+#include "visualization_msgs/msg/marker.hpp"
 #include "group14_assignment_1/utils.hpp"
 #include "group14_interfaces/msg/tables_array.hpp"
 #include "group14_interfaces/srv/look_for_tables.hpp"
@@ -167,10 +169,13 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_subscription_;
     std::shared_ptr<rclcpp::Publisher<group14_interfaces::msg::TablesArray, std::allocator<void>>> tables_publisher_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_publisher_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr clusters_publisher_;
 
     std::vector<Table> tables_; // Detected tables
     std::shared_ptr<rclcpp::Service<group14_interfaces::srv::LookForTables>> service_;
 
+    const int MIN_CLUSTER_POINTS = 3;
     const float INCIDENCE_ANGLE_THRESHOLD = 0.1745; // rad, i.e. 10deg
     const float SCAN_NOISE_FLOOR = 0.01;            // i.e. 1cm
     const float MIN_RADIUS = 0.02;

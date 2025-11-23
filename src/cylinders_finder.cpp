@@ -1,4 +1,5 @@
 #include "group14_assignment_1/cylinders_finder.hpp"
+#include "group14_assignment_1/cylinders_finder_debug.hpp"
 
 #include <cmath>
 #include <Eigen/Dense>
@@ -20,6 +21,10 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
             "/initialpose",
             rclcpp::QoS(10),
             std::bind(&CylindersFinder::initial_pose_callback, this, std::placeholders::_1));
+
+    // Initialize a marker publisher to show the detected tables during the robot motion
+    marker_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("tables_marker_topic", 10);
+    clusters_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("cluster_marker_topic", 10);
 }
 
 void CylindersFinder::initial_pose_callback(
@@ -69,11 +74,15 @@ void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr 
         /* try to fit a circle to every cluster */
         for (std::vector<group14::RangePoint> &cluster : clusters)
             look_for_tables_(cluster, tf_to_map.value());
+
+        // CylindersFinderDebug::publish_clusters(clusters, scan->header, clusters_publisher_);
     }
     else
     {
         return; // if the scan cannot be referenced to the map frame, ignore it
     }
+
+    // CylindersFinderDebug::publish_markers(tables_, marker_publisher_, NUM_DETECTIONS_THRESHOLD, this->now());
 }
 
 void CylindersFinder::look_for_tables_callback(
@@ -148,11 +157,11 @@ void CylindersFinder::cluster_ranges_(
     if (euclidean_dist > D_max)
         merge_cyclic_clusters_(clusters);
 
-    // Remove clusters having less than 5 points
+    // Remove clusters having less than MIN_CLUSTER_POINTS points
     clusters.erase(
         std::remove_if(clusters.begin(), clusters.end(),
-                       [](std::vector<group14::RangePoint> &x)
-                       { return x.size() < 5; }),
+                       [this](std::vector<group14::RangePoint> &x)
+                       { return static_cast<int>(x.size()) < MIN_CLUSTER_POINTS; }),
         clusters.end());
 }
 
