@@ -9,6 +9,7 @@
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "group14_assignment_1/utils.hpp"
 #include "group14_interfaces/msg/tables_array.hpp"
+#include "group14_interfaces/srv/look_for_tables.hpp"
 
 class Table
 {
@@ -51,6 +52,15 @@ public:
      * @param scan Input LaserScan message.
      */
     void process_scan(const sensor_msgs::msg::LaserScan::SharedPtr scan);
+
+    /**
+     * @brief Service callback to retrieve valid detected tables.
+     * Filters stored table candidates based on the number of detections threshold
+     * @param request  The service request (unused).
+     * @param response The service response to be populated with the list of found tables.
+     */
+    void look_for_tables_callback(const std::shared_ptr<group14_interfaces::srv::LookForTables::Request> request,
+                                  std::shared_ptr<group14_interfaces::srv::LookForTables::Response> response);
 
 private:
     /**
@@ -150,12 +160,14 @@ private:
     std::shared_ptr<rclcpp::Publisher<group14_interfaces::msg::TablesArray, std::allocator<void>>> tables_publisher_;
 
     std::vector<Table> tables_; // Detected tables
+    std::shared_ptr<rclcpp::Service<group14_interfaces::srv::LookForTables>> service_;
 
     const float INCIDENCE_ANGLE_THRESHOLD = 0.1745; // rad, i.e. 10deg
     const float SCAN_NOISE_FLOOR = 0.01;            // i.e. 1cm
     const float MIN_RADIUS = 0.02;
     const float MAX_RADIUS = 0.50;
     const double MSE_THRESHOLD = 0.005;
+    const int NUM_DETECTIONS_THRESHOLD = 50;
 };
 
 #endif

@@ -21,6 +21,16 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
         rclcpp::QoS(10),
         std::bind(&CylindersFinder::process_scan, this, std::placeholders::_1));
     */
+
+    // Service server configuration to respond to tables requests
+    RCLCPP_INFO(this->get_logger(), "Creating 'look_for_tables' service...");
+    service_ = this->create_service<group14_interfaces::srv::LookForTables>(
+        "look_for_tables",
+        std::bind(
+            &CylindersFinder::look_for_tables_callback,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2));
 }
 
 void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr scan)
@@ -44,6 +54,23 @@ void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr 
     else
     {
         return; // if the scan cannot be referenced to the map frame, ignore it
+    }
+}
+
+void CylindersFinder::look_for_tables_callback(
+    const std::shared_ptr<group14_interfaces::srv::LookForTables::Request> request,
+    std::shared_ptr<group14_interfaces::srv::LookForTables::Response> response)
+{
+    (void)request;
+    for (Table &table : tables_)
+    {
+        if (table.num_detections > NUM_DETECTIONS_THRESHOLD)
+        {
+            group14_interfaces::msg::Table table_msg;
+            table_msg.center = table.circle.center;
+            table_msg.radius = table.circle.r;
+            response.get()->tables.push_back(table_msg);
+        }
     }
 }
 
