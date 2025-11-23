@@ -8,11 +8,31 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
 {
     RCLCPP_INFO(this->get_logger(), "Cylinders finder node has been started.");
 
-    /*
     // TF2 listener initialization
     RCLCPP_INFO(this->get_logger(), "Initializing TF2 listener");
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    // initial pose availability listener to decide when to start node logic
+    RCLCPP_INFO(this->get_logger(), "Waiting for /initialpose to start logic...");
+    initial_pose_subscription_ =
+        this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "/initialpose",
+            rclcpp::QoS(10),
+            std::bind(&CylindersFinder::initial_pose_callback, this, std::placeholders::_1));
+}
+
+void CylindersFinder::initial_pose_callback(
+    const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+{
+    (void)msg;
+
+    // Controllo per evitare di re-inizializzare se l'utente rimanda l'initialpose
+    if (lidar_subscription_ != nullptr)
+        return;
+
+    // Starting logic
+    RCLCPP_INFO(this->get_logger(), "Initial pose received. Starting logic...");
 
     // Subscription to LIDAR data
     RCLCPP_INFO(this->get_logger(), "Subscribing to /scan topic");
@@ -20,7 +40,6 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
         "/scan",
         rclcpp::QoS(10),
         std::bind(&CylindersFinder::process_scan, this, std::placeholders::_1));
-    */
 
     // Service server configuration to respond to tables requests
     RCLCPP_INFO(this->get_logger(), "Creating 'look_for_tables' service...");

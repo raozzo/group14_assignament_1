@@ -46,6 +46,13 @@ public:
     explicit CylindersFinder(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
 
     /**
+     * @brief Activates the node's main logic upon receiving an initial pose. Initializes the
+     * LIDAR subscription and the service server if they are not already active.
+     * @param msg The initial pose message (unused).
+     */
+    void initial_pose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+
+    /**
      * @brief Main callback for Lidar data processing and table tracking update.
      * Performs segmentation of laser points into clusters, identifies potential circular
      * shapes, and updates the state of detected tables.
@@ -155,6 +162,8 @@ private:
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_subscription_;
 
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_subscription_;
     std::shared_ptr<rclcpp::Publisher<group14_interfaces::msg::TablesArray, std::allocator<void>>> tables_publisher_;
