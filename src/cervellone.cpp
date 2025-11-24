@@ -1,6 +1,8 @@
 //TODO: 
 //  2. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
 //  3. errore sincronizzazione camera
+//  4. stampare posizini tavoli riferite a odom 
+//  5. Dividere cervellone in diversi nodi
 
 //DONE:
 //  1. correggere logica di nav to goal
