@@ -157,7 +157,7 @@ class Cervellone : public rclcpp::Node
     
   
         table_pose.header.frame_id = "map"; 
-        table_pose.header.stamp = this->get_clock()->now();
+        table_pose.header.stamp = builtin_interfaces::msg::Time();
 
         table_pose.pose.position = table.center.point; 
         table_pose.pose.orientation.w = 1.0;     // To reuse the same function used for tags i assign a default orientation 
@@ -298,16 +298,15 @@ class Cervellone : public rclcpp::Node
      {
         case rclcpp_action::ResultCode::SUCCEEDED:
           RCLCPP_INFO(this->get_logger(), "Navigation SUCCEEDED!");
-          break;
-        case rclcpp_action::ResultCode::ABORTED:
-          RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
           //when the navigation is finsished i want to wait a little and the report the tables found and the tag postion in odom
           //table
           this->request_table_detection();
-          //tags
+          //FIX:tags
           //log_pose_in_odom(t1, "TAG1");
           //log_pose_in_odom(t2, "TAG2");
-
+          break;
+        case rclcpp_action::ResultCode::ABORTED:
+          RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
           break;
         case rclcpp_action::ResultCode::CANCELED:
           RCLCPP_ERROR(this->get_logger(), "Navigation was CANCELED");
