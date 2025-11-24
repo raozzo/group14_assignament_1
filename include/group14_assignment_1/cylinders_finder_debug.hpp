@@ -17,6 +17,12 @@ public:
         int NUM_DETECTIONS_THRESHOLD,
         rclcpp::Time now);
 
+    static void publish_single_circle(
+        group14::Circle &circle,
+        rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr &marker_publisher_,
+        int NUM_DETECTIONS_THRESHOLD,
+        rclcpp::Time now);
+
     static void publish_clusters(
         const std::vector<std::vector<group14::RangePoint>> &clusters,
         const std_msgs::msg::Header &header,

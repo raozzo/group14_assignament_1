@@ -39,7 +39,7 @@ public:
     double cumulative_weight;
     int num_detections;
 
-    static constexpr float DISTANCE_THRESHOLD = 0.25;
+    static constexpr float DISTANCE_THRESHOLD = 0.25; // Max distance between tables' centers to be considered as the same table
 };
 
 class CylindersFinder : public rclcpp::Node
@@ -181,7 +181,7 @@ private:
     const float MIN_RADIUS = 0.02;
     const float MAX_RADIUS = 0.50;
     const double MSE_THRESHOLD = 0.005;
-    const int NUM_DETECTIONS_THRESHOLD = 50;
+    const int NUM_DETECTIONS_THRESHOLD = 30;
 };
 
 #endif

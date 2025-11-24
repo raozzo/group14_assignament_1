@@ -32,7 +32,7 @@ void CylindersFinder::initial_pose_callback(
 {
     (void)msg;
 
-    // Controllo per evitare di re-inizializzare se l'utente rimanda l'initialpose
+    // avoid re-initializations is case of further received initial poses
     if (lidar_subscription_ != nullptr)
         return;
 
@@ -82,7 +82,7 @@ void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr 
         return; // if the scan cannot be referenced to the map frame, ignore it
     }
 
-    // CylindersFinderDebug::publish_markers(tables_, marker_publisher_, NUM_DETECTIONS_THRESHOLD, this->now());
+    CylindersFinderDebug::publish_markers(tables_, marker_publisher_, NUM_DETECTIONS_THRESHOLD, this->now());
 }
 
 void CylindersFinder::look_for_tables_callback(
@@ -206,6 +206,7 @@ void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &c
         geometry_msgs::msg::PointStamped center_wrt_map;
         tf2::doTransform(circle.value().center, center_wrt_map, tf);
         group14::Circle candidate_table(center_wrt_map, circle.value().r);
+        // CylindersFinderDebug::publish_single_circle(candidate_table, marker_publisher_, 0, this->now());
 
         // Compare this candidate table with already seen tables
         bool match_found = false;

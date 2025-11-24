@@ -53,6 +53,16 @@ void CylindersFinderDebug::publish_markers(
     marker_publisher_->publish(markers_msg);
 }
 
+void CylindersFinderDebug::publish_single_circle(
+    group14::Circle &circle,
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr &marker_publisher_,
+    int NUM_DETECTIONS_THRESHOLD,
+    rclcpp::Time now)
+{
+    std::vector<Table> vector = {Table(circle)};
+    publish_markers(vector, marker_publisher_, 0, now);
+}
+
 void CylindersFinderDebug::publish_clusters(
     const std::vector<std::vector<group14::RangePoint>> &clusters,
     const std_msgs::msg::Header &header,
