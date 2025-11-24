@@ -93,7 +93,7 @@ class Cervellone : public rclcpp::Node
         return;
     }
 
-    RCLCPP_WARN(this->get_logger(), "🛑 CORRIDOR DETECTED! Stopping Robot...");
+    RCLCPP_WARN(this->get_logger(), "Stopping Robot...");
 
     // Cancel the goal
     this->nav_client_->async_cancel_goal(this->current_goal_handle_);
@@ -101,9 +101,6 @@ class Cervellone : public rclcpp::Node
     // Mark as paused so we know we intend to resume later
     this->is_navigation_paused_ = true;
     
-    // Reset the 'sent' flag so the logic knows we aren't 'done' yet
-    // (But be careful not to let calculate_goal resend it immediately!)
-    // It's better to manage this via specific flags.
   }
 
 
@@ -113,7 +110,7 @@ class Cervellone : public rclcpp::Node
         return; // We weren't paused, do nothing
     }
 
-    RCLCPP_INFO(this->get_logger(), "✅ Corridor Clear! Resuming navigation to original target...");
+    RCLCPP_INFO(this->get_logger(), "End of corridor resuming navigation to original target...");
 
     // Simply resend the saved pose!
     // Nav2 will plan a NEW path from your CURRENT position to the OLD goal.
@@ -125,12 +122,12 @@ class Cervellone : public rclcpp::Node
   void corridor_callback(const std_msgs::msg::Bool::SharedPtr msg)
     {
         if (msg->data) {
-            // TRUE = Corridor Detected -> STOP
-            RCLCPP_WARN(this->get_logger(), "⚠️ Manual Trigger: STOPPING for Corridor!");
+            // TRUE = Corridor Ended -> STOP
+            RCLCPP_WARN(this->get_logger(), "Manual Trigger: STOPPING for Corridor!");
             this->stop_navigation();
         } else {
-            // FALSE = Corridor Clear -> RESUME
-            RCLCPP_INFO(this->get_logger(), "✅ Manual Trigger: RESUMING Navigation!");
+            // FALSE = Corridor ended -> RESUME
+            RCLCPP_INFO(this->get_logger(), "Manual Trigger: RESUMING Navigation!");
             this->resume_navigation();
         }
     }
