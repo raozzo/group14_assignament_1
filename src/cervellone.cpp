@@ -25,6 +25,8 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 
+#include "std_msgs/msg/bool.hpp"
+
 #include "group14_assignment_1/utils.hpp"
 
 using namespace std::chrono_literals;
@@ -59,6 +61,11 @@ class Cervellone : public rclcpp::Node
     
     // Initialize action for nv2pose
     this->nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
+    
+    // subsriction to /corrdor_trigger to manually test navigation stopping and resuming
+    this->corridor_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+      "/corridor_trigger", 10,
+      std::bind(&Cervellone::corridor_callback, this, std::placeholders::_1));
 
     RCLCPP_INFO(this->get_logger(), "Cervellone pensa. aspettando le tags...");
   
@@ -69,6 +76,64 @@ class Cervellone : public rclcpp::Node
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pose_pub_;
   rclcpp::TimerBase::SharedPtr init_timer_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
+   
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr corridor_sub_;
+  // Store the handle so we can cancel it later
+  GoalHandleNav::SharedPtr current_goal_handle_;
+  // Store the target pose so we can re-send it later
+  geometry_msgs::msg::PoseStamped active_target_pose_;
+  // Flag to know if we are currently paused
+  bool is_navigation_paused_ = false;
+ 
+
+  void stop_navigation()
+  {
+    if (!this->current_goal_handle_) {
+        RCLCPP_WARN(this->get_logger(), "Cannot stop: No active goal!");
+        return;
+    }
+
+    RCLCPP_WARN(this->get_logger(), "🛑 CORRIDOR DETECTED! Stopping Robot...");
+
+    // Cancel the goal
+    this->nav_client_->async_cancel_goal(this->current_goal_handle_);
+    
+    // Mark as paused so we know we intend to resume later
+    this->is_navigation_paused_ = true;
+    
+    // Reset the 'sent' flag so the logic knows we aren't 'done' yet
+    // (But be careful not to let calculate_goal resend it immediately!)
+    // It's better to manage this via specific flags.
+  }
+
+
+  void resume_navigation()
+  {
+    if (!this->is_navigation_paused_) {
+        return; // We weren't paused, do nothing
+    }
+
+    RCLCPP_INFO(this->get_logger(), "✅ Corridor Clear! Resuming navigation to original target...");
+
+    // Simply resend the saved pose!
+    // Nav2 will plan a NEW path from your CURRENT position to the OLD goal.
+    send_goal_to_nav2(this->active_target_pose_);
+    
+    this->is_navigation_paused_ = false;
+  }
+  
+  void corridor_callback(const std_msgs::msg::Bool::SharedPtr msg)
+    {
+        if (msg->data) {
+            // TRUE = Corridor Detected -> STOP
+            RCLCPP_WARN(this->get_logger(), "⚠️ Manual Trigger: STOPPING for Corridor!");
+            this->stop_navigation();
+        } else {
+            // FALSE = Corridor Clear -> RESUME
+            RCLCPP_INFO(this->get_logger(), "✅ Manual Trigger: RESUMING Navigation!");
+            this->resume_navigation();
+        }
+    }
 
   void initialize_localization()
   {
@@ -127,14 +192,21 @@ class Cervellone : public rclcpp::Node
     RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
 
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
-        
+    
+    //Save the goal in case of stop/resume 
+    this->active_target_pose_ = goal_pose;
+
     // Callback when goal is accepted/rejected
-    send_goal_options.goal_response_callback =
-    [this](const GoalHandleNav::SharedPtr & goal_handle) {
+    send_goal_options.goal_response_callback = [this](const GoalHandleNav::SharedPtr & goal_handle) {
       if (!goal_handle) {
         RCLCPP_ERROR(this->get_logger(), "GOAL REJECTKD");
       } else {
         goal_sent_ = true;
+
+        // save the goal handle and bool update 
+        this->current_goal_handle_ = goal_handle; 
+        this->is_navigation_paused_ = false; // Reset pause flag
+
         RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
       }
     };
