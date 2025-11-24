@@ -13,6 +13,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(group14_interfaces REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -38,6 +39,7 @@ ament_target_dependencies(
   tf2_ros
   tf2_geometry_msgs
   geometry_msgs
+  group14_interfaces
 )
 
 add_executable(cylinders_finder src/cylinders_finder.cpp src/cylinders_finder_debug.cpp)

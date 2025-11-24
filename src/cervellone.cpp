@@ -27,16 +27,21 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 
-#include "std_msgs/msg/bool.hpp"
 
+//utils services and messages
 #include "group14_assignment_1/utils.hpp"
+#include "group14_interfaces/srv/look_for_tables.hpp"
+#include "group14_interfaces/msg/table.hpp"
+
+#include "std_msgs/msg/bool.hpp" //This is temporary 
 
 using namespace std::chrono_literals;
 
 class Cervellone : public rclcpp::Node
 {
   public:
-  
+  using LookForTables = group14_interfaces::srv::LookForTables;
+  using TableMsg = group14_interfaces::msg::Table;
   using NavigateToPose = nav2_msgs::action::NavigateToPose;
   using GoalHandleNav = rclcpp_action::ClientGoalHandle<NavigateToPose>;
 
@@ -69,6 +74,8 @@ class Cervellone : public rclcpp::Node
       "/corridor_trigger", 10,
       std::bind(&Cervellone::corridor_callback, this, std::placeholders::_1));
 
+    table_client_ = this->create_client<LookForTables>("look_for_tables");
+
     RCLCPP_INFO(this->get_logger(), "Cervellone pensa. aspettando le tags...");
   
   }
@@ -80,14 +87,87 @@ class Cervellone : public rclcpp::Node
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
    
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr corridor_sub_;
-  // Store the handle so we can cancel it later
+
   GoalHandleNav::SharedPtr current_goal_handle_;
   // Store the target pose so we can re-send it later
   geometry_msgs::msg::PoseStamped active_target_pose_;
   // Flag to know if we are currently paused
   bool is_navigation_paused_ = false;
- 
+  
+  
+  //function to transform from map to odom
+  void log_pose_in_odom(geometry_msgs::msg::PoseStamped input_pose, std::string label)
+  {
+    geometry_msgs::msg::PoseStamped output_pose;
 
+    try 
+    {
+      // Transform the pose to odom
+      tf_buffer_->transform(input_pose, output_pose, "odom", tf2::durationFromSec(1.0));
+
+      RCLCPP_INFO(this->get_logger(), "REPORT: %s relative to ODOM: [x: %.2f, y: %.2f, z: %.2f]", 
+        label.c_str(), 
+        output_pose.pose.position.x, 
+        output_pose.pose.position.y,
+        output_pose.pose.position.z);
+
+    } catch (const tf2::TransformException & ex) 
+    {
+       RCLCPP_WARN(this->get_logger(), "Cannot transform %s to odom: %s", label.c_str(), ex.what());
+    }
+  }
+
+
+  rclcpp::Client<LookForTables>::SharedPtr table_client_;
+  
+  // Request to table service 
+  void request_table_detection()
+  {
+    if (!table_client_->wait_for_service(std::chrono::seconds(2))) {
+        RCLCPP_ERROR(this->get_logger(), "Table Detector Service not available!");
+        return;
+    }
+
+    auto request = std::make_shared<LookForTables::Request>();
+        
+    RCLCPP_INFO(this->get_logger(), "Requesting Table Detection");
+
+    // Send request asynchronously
+    auto future_result = table_client_->async_send_request(request,
+        std::bind(&Cervellone::process_tables_response, this, std::placeholders::_1));
+  }
+
+    //Handle response 
+  void process_tables_response(rclcpp::Client<LookForTables>::SharedFuture future)
+  {
+    auto result = future.get();
+
+    if (result->tables.empty()) {
+      RCLCPP_WARN(this->get_logger(), "Service returned NO tables.");
+      return;
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Received %zu tables. Transforming to ODOM...", result->tables.size());
+
+    // Iterate through detected tables
+    for (size_t i = 0; i < result->tables.size(); ++i) 
+    {
+        const auto& table = result->tables[i];
+        geometry_msgs::msg::PoseStamped table_pose;
+    
+  
+        table_pose.header.frame_id = "map"; 
+        table_pose.header.stamp = this->get_clock()->now();
+
+        table_pose.pose.position = table.center.point; 
+        table_pose.pose.orientation.w = 1.0;     // To reuse the same function used for tags i assign a default orientation 
+
+  
+        std::string label = "Table " + std::to_string(i + 1);
+        log_pose_in_odom(table_pose, label);
+    }
+  }
+   
   void stop_navigation()
   {
     if (!this->current_goal_handle_) {
@@ -109,13 +189,13 @@ class Cervellone : public rclcpp::Node
   void resume_navigation()
   {
     if (!this->is_navigation_paused_) {
-        return; // We weren't paused, do nothing
+      //if not paudes do nothing 
+      return;
     }
 
     RCLCPP_INFO(this->get_logger(), "End of corridor resuming navigation to original target...");
 
-    // Simply resend the saved pose!
-    // Nav2 will plan a NEW path from your CURRENT position to the OLD goal.
+    // send again the saved pose
     send_goal_to_nav2(this->active_target_pose_);
     
     this->is_navigation_paused_ = false;
@@ -212,14 +292,22 @@ class Cervellone : public rclcpp::Node
 
     //NOTE:
     // Callback when navigation is finished
-    send_goal_options.result_callback =
-    [this](const GoalHandleNav::WrappedResult & result) {
-     switch (result.code) {
+    send_goal_options.result_callback = [this](const GoalHandleNav::WrappedResult & result)
+    {
+     switch (result.code) 
+     {
         case rclcpp_action::ResultCode::SUCCEEDED:
           RCLCPP_INFO(this->get_logger(), "Navigation SUCCEEDED!");
           break;
         case rclcpp_action::ResultCode::ABORTED:
           RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
+          //when the navigation is finsished i want to wait a little and the report the tables found and the tag postion in odom
+          //table
+          this->request_table_detection();
+          //tags
+          //log_pose_in_odom(t1, "TAG1");
+          //log_pose_in_odom(t2, "TAG2");
+
           break;
         case rclcpp_action::ResultCode::CANCELED:
           RCLCPP_ERROR(this->get_logger(), "Navigation was CANCELED");
@@ -238,10 +326,10 @@ class Cervellone : public rclcpp::Node
   {
     if (goal_sent_) { return; } 
     
-    geometry_msgs::msg::TransformStamped t1, t2;
     bool t1_found = false;
     bool t2_found = false;
 
+    geometry_msgs::msg::TransformStamped t1, t2;
     
     // to DEBug i try to find each singular tag, then it can be slimmed 
     // Try to find Tag 1
@@ -291,6 +379,21 @@ class Cervellone : public rclcpp::Node
       
       //for now i only print in terminal do i can grep it and check      
       RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<", mid_x, mid_y);
+
+      geometry_msgs::msg::PoseStamped t1_pose;
+      geometry_msgs::msg::PoseStamped t2_pose;
+      t1_pose.header = t1.header;
+      t1_pose.pose.position.x = t1.transform.translation.x;
+      t1_pose.pose.position.y = t1.transform.translation.y;
+      t1_pose.pose.position.z = t1.transform.translation.z;
+      t1_pose.pose.orientation = t1.transform.rotation;
+      log_pose_in_odom(t1_pose, "TAG1");
+      t2_pose.header = t2.header;
+      t2_pose.pose.position.x = t2.transform.translation.x;
+      t2_pose.pose.position.y = t2.transform.translation.y;
+      t2_pose.pose.position.z = t2.transform.translation.z;
+      t2_pose.pose.orientation = t2.transform.rotation;
+      log_pose_in_odom(t2_pose, "TAG2");
       
     }
   } 
