@@ -42,12 +42,18 @@ ament_target_dependencies(
   group14_interfaces
 )
 
-add_executable(cylinders_finder src/cylinders_finder.cpp src/cylinders_finder_debug.cpp)
+add_executable(cylinders_finder src/cylinders_finder.cpp)
 ament_target_dependencies(
   cylinders_finder
   rclcpp tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs visualization_msgs group14_interfaces
 )
 target_link_libraries(cylinders_finder Eigen3::Eigen)
+
+add_executable(laser_scan_clustering src/laser_scan_clustering.cpp)
+ament_target_dependencies(
+  laser_scan_clustering
+  rclcpp tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs visualization_msgs group14_interfaces
+)
 
 # Install launch files
 install(DIRECTORY
@@ -63,7 +69,7 @@ install(DIRECTORY include/
 
 #install cervellone
 install(TARGETS
-  cervellone cylinders_finder
+  cervellone cylinders_finder laser_scan_clustering
   DESTINATION lib/${PROJECT_NAME}
 )
 

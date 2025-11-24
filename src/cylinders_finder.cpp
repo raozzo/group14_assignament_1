@@ -1,5 +1,4 @@
 #include "group14_assignment_1/cylinders_finder.hpp"
-#include "group14_assignment_1/cylinders_finder_debug.hpp"
 
 #include <cmath>
 #include <Eigen/Dense>
@@ -14,190 +13,42 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // initial pose availability listener to decide when to start node logic
-    RCLCPP_INFO(this->get_logger(), "Waiting for /initialpose to start logic...");
-    initial_pose_subscription_ =
-        this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/initialpose",
+    // Initial pose availability listener to decide when to start node logic
+    RCLCPP_INFO(this->get_logger(), "Waiting for /laser_scan_clustering to look for circular tables");
+    clustered_scan_subscription_ =
+        this->create_subscription<group14_interfaces::msg::ClusterArray>(
+            "/laser_scan_clustering",
             rclcpp::QoS(10),
-            std::bind(&CylindersFinder::initial_pose_callback, this, std::placeholders::_1));
+            std::bind(&CylindersFinder::process_clustered_scan_, this, std::placeholders::_1));
 
     // Initialize a marker publisher to show the detected tables during the robot motion
-    marker_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("tables_marker_topic", 10);
-    clusters_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("cluster_marker_topic", 10);
+    table_markers_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("table_markers_topic", 10);
 }
 
-void CylindersFinder::initial_pose_callback(
-    const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+void CylindersFinder::process_clustered_scan_(const group14_interfaces::msg::ClusterArray &scan)
 {
-    (void)msg;
-
-    // avoid re-initializations is case of further received initial poses
-    if (lidar_subscription_ != nullptr)
-        return;
-
-    // Starting logic
-    RCLCPP_INFO(this->get_logger(), "Initial pose received. Starting logic...");
-
-    // Subscription to LIDAR data
-    RCLCPP_INFO(this->get_logger(), "Subscribing to /scan topic");
-    lidar_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-        "/scan",
-        rclcpp::QoS(10),
-        std::bind(&CylindersFinder::process_scan, this, std::placeholders::_1));
-
-    // Service server configuration to respond to tables requests
-    RCLCPP_INFO(this->get_logger(), "Creating 'look_for_tables' service...");
-    service_ = this->create_service<group14_interfaces::srv::LookForTables>(
-        "look_for_tables",
-        std::bind(
-            &CylindersFinder::look_for_tables_callback,
-            this,
-            std::placeholders::_1,
-            std::placeholders::_2));
-}
-
-void CylindersFinder::process_scan(const sensor_msgs::msg::LaserScan::SharedPtr scan)
-{
-    int scan_dim = static_cast<int>(scan->ranges.size());
-    if (scan_dim == 0)
-        return;
-
-    /* try a conversion to map reference frame */
-    std::optional<geometry_msgs::msg::TransformStamped> tf_to_map = transform_(scan->header, "map");
+    // try a conversion to map reference frame
+    std_msgs::msg::Header header = scan.clusters.front().points.front().point.header;
+    std::optional<geometry_msgs::msg::TransformStamped> tf_to_map = transform_(header, "map");
     if (tf_to_map.has_value())
     {
-        /* ranges clustering */
-        std::vector<std::vector<group14::RangePoint>> clusters;
-        cluster_ranges_(scan, clusters);
-
         /* try to fit a circle to every cluster */
-        for (std::vector<group14::RangePoint> &cluster : clusters)
+        for (const group14_interfaces::msg::RangePointArray &cluster : scan.clusters)
             look_for_tables_(cluster, tf_to_map.value());
 
-        // CylindersFinderDebug::publish_clusters(clusters, scan->header, clusters_publisher_);
+        DEBUG_publish_table_markers_(tables_, NUM_DETECTIONS_THRESHOLD);
     }
     else
     {
-        return; // if the scan cannot be referenced to the map frame, ignore it
-    }
-
-    CylindersFinderDebug::publish_markers(tables_, marker_publisher_, NUM_DETECTIONS_THRESHOLD, this->now());
-}
-
-void CylindersFinder::look_for_tables_callback(
-    const std::shared_ptr<group14_interfaces::srv::LookForTables::Request> request,
-    std::shared_ptr<group14_interfaces::srv::LookForTables::Response> response)
-{
-    (void)request;
-    for (Table &table : tables_)
-    {
-        if (table.num_detections > NUM_DETECTIONS_THRESHOLD)
-        {
-            group14_interfaces::msg::Table table_msg;
-            table_msg.center = table.circle.center;
-            table_msg.radius = table.circle.r;
-            response.get()->tables.push_back(table_msg);
-        }
+        // if the scan cannot be referenced to the map frame, ignore it
     }
 }
 
-/* CYLINDERS FINDER - PRIVATE METHODS */
-
-void CylindersFinder::cluster_ranges_(
-    const sensor_msgs::msg::LaserScan::SharedPtr &scan,
-    std::vector<std::vector<group14::RangePoint>> &clusters)
-{
-    clusters = {};
-
-    std_msgs::msg::Header header = scan->header;
-    int scan_dim = static_cast<int>(scan->ranges.size());
-    float range_min = scan->range_min;
-    float range_max = scan->range_max;
-
-    // For each range measurement
-    for (int i = 0; i < scan_dim; ++i)
-    {
-        // Remove unreliable measures
-        float range = scan->ranges[i];
-        if (range < range_min || range > range_max || std::isinf(range) || std::isnan(range))
-            continue;
-
-        // Build a RangePoint representing the measure
-        float angle = scan->angle_min + i * scan->angle_increment;
-        group14::RangePoint rp(range, angle, i, rangeToPointStamped_(range, angle, header));
-
-        // Assign the current rp to the correct cluster
-        if (clusters.empty())
-        {
-            clusters.emplace_back(std::vector<group14::RangePoint>{rp});
-        }
-        else
-        {
-            group14::RangePoint prev_rp = clusters.back().back();
-            double euclidean_dist = std::hypot(rp.point.point.x - prev_rp.point.point.x,
-                                               rp.point.point.y - prev_rp.point.point.y);
-            double D_max = compute_dynamic_D_max_(prev_rp.range, (angle - prev_rp.angle),
-                                                  INCIDENCE_ANGLE_THRESHOLD, SCAN_NOISE_FLOOR);
-
-            if (euclidean_dist > D_max)
-                clusters.emplace_back(std::vector<group14::RangePoint>{rp});
-            else
-                clusters.back().emplace_back(rp);
-        }
-    }
-
-    // Merge the 1st and the last clusters if their extremities are closer than D_max
-    group14::RangePoint rp_1 = clusters.back().back();
-    group14::RangePoint rp_2 = clusters.front().front();
-    double euclidean_dist = std::hypot(rp_2.point.point.x - rp_1.point.point.x,
-                                       rp_2.point.point.y - rp_1.point.point.y);
-    double D_max = compute_dynamic_D_max_(rp_1.range, (rp_2.angle + 2 * group14::PI - rp_1.angle),
-                                          INCIDENCE_ANGLE_THRESHOLD, SCAN_NOISE_FLOOR);
-    if (euclidean_dist > D_max)
-        merge_cyclic_clusters_(clusters);
-
-    // Remove clusters having less than MIN_CLUSTER_POINTS points
-    clusters.erase(
-        std::remove_if(clusters.begin(), clusters.end(),
-                       [this](std::vector<group14::RangePoint> &x)
-                       { return static_cast<int>(x.size()) < MIN_CLUSTER_POINTS; }),
-        clusters.end());
-}
-
-void CylindersFinder::merge_cyclic_clusters_(std::vector<std::vector<group14::RangePoint>> &clusters)
-{
-    std::vector<group14::RangePoint> &front = clusters.front();
-    std::vector<group14::RangePoint> &back = clusters.back();
-    front.reserve(front.size() + back.size());
-    front.insert(front.begin(), back.begin(), back.end());
-
-    clusters.pop_back();
-}
-
-geometry_msgs::msg::PointStamped CylindersFinder::rangeToPointStamped_(
-    float range, float angle, std_msgs::msg::Header header)
-{
-    geometry_msgs::msg::PointStamped p;
-    p.header = header;
-    p.point.x = range * std::cos(angle);
-    p.point.y = range * std::sin(angle);
-
-    return p;
-}
-
-double CylindersFinder::compute_dynamic_D_max_(
-    float prev_valid_range, float angle_increment,
-    float INCIDENCE_ANGLE_THRESHOLD, float NOISE_FLOOR)
-{
-    return (prev_valid_range * sin(angle_increment)) / sin(INCIDENCE_ANGLE_THRESHOLD - angle_increment) + NOISE_FLOOR;
-}
-
-void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &cluster,
+void CylindersFinder::look_for_tables_(const group14_interfaces::msg::RangePointArray &cluster,
                                        geometry_msgs::msg::TransformStamped &tf)
 {
     // Try to fit a circle to the cluster points with Kasa mathod
-    std::optional<group14::Circle> circle = fit_circle_Kasa_(cluster);
+    std::optional<Circle> circle = fit_circle_Kasa_(cluster);
 
     // If the cluster well represents a circular arc
     if (circle.has_value() && validate_circle_fit_(cluster, circle.value()))
@@ -205,8 +56,7 @@ void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &c
         // Build a new circle object (i.e. candidate table) with respect to the map frame
         geometry_msgs::msg::PointStamped center_wrt_map;
         tf2::doTransform(circle.value().center, center_wrt_map, tf);
-        group14::Circle candidate_table(center_wrt_map, circle.value().r);
-        // CylindersFinderDebug::publish_single_circle(candidate_table, marker_publisher_, 0, this->now());
+        Circle candidate_table(center_wrt_map, circle.value().r);
 
         // Compare this candidate table with already seen tables
         bool match_found = false;
@@ -218,7 +68,7 @@ void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &c
                 double distance = std::hypot(circle.value().center.point.x, circle.value().center.point.y);
 
                 // Update the table estimate
-                t.update(candidate_table, distance, static_cast<int>(cluster.size()));
+                t.update(candidate_table, distance, static_cast<int>(cluster.points.size()));
 
                 match_found = true;
                 break;
@@ -233,9 +83,9 @@ void CylindersFinder::look_for_tables_(const std::vector<group14::RangePoint> &c
     }
 }
 
-std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa_(const std::vector<group14::RangePoint> &cluster)
+std::optional<Circle> CylindersFinder::fit_circle_Kasa_(const group14_interfaces::msg::RangePointArray &cluster)
 {
-    int n_points = static_cast<int>(cluster.size());
+    int n_points = static_cast<int>(cluster.points.size());
 
     // for each point (x, y):
     // (x - x_c)^2 + (y - y_c)^2 = R^2
@@ -247,8 +97,8 @@ std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa_(const std::vect
     Eigen::VectorXd b(n_points);
     for (int i = 0; i < n_points; ++i)
     {
-        double x = cluster[i].point.point.x;
-        double y = cluster[i].point.point.y;
+        double x = cluster.points[i].point.point.x;
+        double y = cluster.points[i].point.point.y;
         A(i, 0) = x;
         A(i, 1) = y;
         A(i, 2) = 1.0;
@@ -267,20 +117,20 @@ std::optional<group14::Circle> CylindersFinder::fit_circle_Kasa_(const std::vect
     if (std::isnan(radius))
         return std::nullopt;
 
-    return group14::Circle(x_center, y_center, radius, cluster.front().point.header);
+    return Circle(x_center, y_center, radius, cluster.points.front().point.header);
 }
 
-bool CylindersFinder::validate_circle_fit_(const std::vector<group14::RangePoint> &cluster,
-                                           const group14::Circle &circle)
+bool CylindersFinder::validate_circle_fit_(const group14_interfaces::msg::RangePointArray &cluster,
+                                           const Circle &circle)
 {
     // Radius check
     if (circle.r < MIN_RADIUS || circle.r > MAX_RADIUS)
         return false;
 
     // MSE check
-    int n_points = static_cast<int>(cluster.size());
+    int n_points = static_cast<int>(cluster.points.size());
     double MSE = 0;
-    for (const group14::RangePoint &p : cluster)
+    for (const group14_interfaces::msg::RangePoint &p : cluster.points)
         MSE += std::pow(std::hypot(p.point.point.x - circle.center.point.x, p.point.point.y - circle.center.point.y) - circle.r, 2);
     MSE /= n_points;
 
@@ -310,12 +160,68 @@ std::optional<geometry_msgs::msg::TransformStamped> CylindersFinder::transform_(
     }
 }
 
+void CylindersFinder::DEBUG_publish_table_markers_(std::vector<Table> &tables_, int NUM_DETECTIONS_THRESHOLD)
+{
+    visualization_msgs::msg::MarkerArray markers_msg;
+
+    visualization_msgs::msg::Marker delete_all_marker;
+    delete_all_marker.action = 3; // 3 = DELETEALL
+    markers_msg.markers.push_back(delete_all_marker);
+
+    int id = 0;
+    for (const auto &table : tables_)
+    {
+        if (table.num_detections < NUM_DETECTIONS_THRESHOLD)
+            continue;
+
+        visualization_msgs::msg::Marker marker;
+
+        marker.header.frame_id = table.circle.center.header.frame_id;
+        marker.header.stamp = this->now();
+        marker.ns = "tables";
+        marker.id = id++;
+        marker.type = visualization_msgs::msg::Marker::CYLINDER;
+        marker.action = visualization_msgs::msg::Marker::ADD;
+
+        marker.pose.position.x = table.circle.center.point.x;
+        marker.pose.position.y = table.circle.center.point.y;
+        marker.pose.position.z = 0.025;
+
+        marker.pose.orientation.x = 0.0;
+        marker.pose.orientation.y = 0.0;
+        marker.pose.orientation.z = 0.0;
+        marker.pose.orientation.w = 1.0;
+
+        marker.scale.x = table.circle.r * 2.0;
+        marker.scale.y = table.circle.r * 2.0;
+        marker.scale.z = 0.05;
+
+        marker.color.r = 0.0f;
+        marker.color.g = 1.0f;
+        marker.color.b = 0.0f;
+        marker.color.a = 0.8f;
+
+        marker.lifetime = rclcpp::Duration::from_seconds(0);
+
+        markers_msg.markers.push_back(marker);
+    }
+
+    table_markers_publisher_->publish(markers_msg);
+}
+
+void CylindersFinder::DEBUG_publish_single_circle_marker_(Circle &circle)
+{
+    (void)NUM_DETECTIONS_THRESHOLD;
+    std::vector<Table> vector = {Table(circle)};
+    DEBUG_publish_table_markers_(vector, 0);
+}
+
 /* TABLE CLASS */
 
-Table::Table(group14::Circle circle_, double initial_weight, int num_detections_)
+Table::Table(Circle circle_, double initial_weight, int num_detections_)
     : circle(circle_), cumulative_weight(initial_weight), num_detections(num_detections_) {}
 
-void Table::update(const group14::Circle &new_circle, double distance, int cluster_size)
+void Table::update(const Circle &new_circle, double distance, int cluster_size)
 {
     // Compute a weight for the current measure (proportional to the number of points in the cluster,
     // inversely proportional to the distance at which the scan has been taken)
@@ -335,7 +241,7 @@ void Table::update(const group14::Circle &new_circle, double distance, int clust
     num_detections++;
 }
 
-bool Table::is_same_table(const Table &t, const group14::Circle &c)
+bool Table::is_same_table(const Table &t, const Circle &c)
 {
     return std::hypot(t.circle.center.point.x - c.center.point.x, t.circle.center.point.y - c.center.point.y) < DISTANCE_THRESHOLD;
 }
