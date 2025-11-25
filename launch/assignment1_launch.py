@@ -21,7 +21,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': 'true',
             #from the tutor launch we can see it exposes ab autostart flag for the nav stack
-            #FIX: non si puo usare
+            #FIX: non si puo usare autostart
             #'autostart': 'True'
         }.items()
     )
