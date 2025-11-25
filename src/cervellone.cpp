@@ -64,7 +64,8 @@ class Cervellone : public rclcpp::Node
      
     client_localization_ = this->create_client<ManageLifecycleNodes>(
         "/lifecycle_manager_localization/manage_nodes");
-    lifecycle_client_ = this->create_client<ManageLifecycleNodes>(
+    
+    client_navigation_ = this->create_client<ManageLifecycleNodes>(
             "/lifecycle_manager_navigation/manage_nodes");
 
  
@@ -107,7 +108,7 @@ class Cervellone : public rclcpp::Node
   
   rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_localization_;
   rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_navigation_;
-  /rclcpp::Client<ManageLifecycleNodes>::SharedPtr lifecycle_client_;
+  rclcpp::Client<ManageLifecycleNodes>::SharedPtr lifecycle_client_;
  
   void startup_full_stack()
   {
@@ -127,6 +128,9 @@ class Cervellone : public rclcpp::Node
       if (future_loc.get()->success) 
       {
         RCLCPP_INFO(this->get_logger(), "Localization Active");
+       //need to fic initial pose before navigation 
+        this->initialize_localization();
+
         //NOTE: navigation start
         this->startup_navigation();          
       } else 
@@ -152,9 +156,6 @@ class Cervellone : public rclcpp::Node
       if (future_nav.get()->success) 
       {
         RCLCPP_INFO(this->get_logger(), "Navigation Active.");
-        //NOTE: send initial pose 
-        this->initialize_localization(); 
-                
       } else {
         RCLCPP_ERROR(this->get_logger(), "Failed to start Navigation.");
       }
@@ -327,7 +328,6 @@ class Cervellone : public rclcpp::Node
   std::string tag1_frame_ = "tag36h11:10"; 
   std::string tag2_frame_ = "tag36h11:1";
 
-  //FIX: THIS NEED TO BE FIXED (SEE TODO header)
   std::string world_frame_ = "map";
   //std::string world_frame_ = "odom";
 
