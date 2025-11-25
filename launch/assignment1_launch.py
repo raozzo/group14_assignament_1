@@ -39,13 +39,9 @@ def generate_launch_description():
 
     apriltag_group = GroupAction(
         actions=[
-            # Remap the node's internal name ('image_rect') to your sim topic
-            # VERIFY: Use 'ros2 topic list' to check if your topic is 'image_raw' or 'image_rect'
+            # Remapping of camera nodes  
             SetRemap(src='image_rect', dst='/rgb_camera/image'),
             SetRemap(src='camera_info', dst='/rgb_camera/camera_info'),
-            
-            #resize
-            #SetParameter(name='size', value='0.05'),
             
             # Include the file required by the assignment
             IncludeLaunchDescription(
@@ -86,23 +82,19 @@ def generate_launch_description():
         output='screen'
     )
 
-   
+    laser_scan_clustering = Node( 
+        package='group14_assignment_1',
+        executable='laser_scan_clustering',  
+        output='screen'
+    )
 
-#
-    #Launch for the clinet
-   # burrow_client = Node(
-    #    package='group14_ex4',
-     #   executable='burrow_client',
-     #   output='screen'
-    #)
-
-    # --- 3. Return the LaunchDescription ---
     return LaunchDescription([
         include_assignment_1_launch,
         apriltag_group,
         cervellone,
         corridor_detector,
         corridor_navigator,
+        laser_scan_clustering,
         cylinders_finder
         #burrow_client
     ])
