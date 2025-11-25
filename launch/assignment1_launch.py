@@ -21,7 +21,8 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': 'true',
             #from the tutor launch we can see it exposes ab autostart flag for the nav stack
-            'autostart': 'True'
+            #FIX: non si puo usare autostart
+            #'autostart': 'True'
         }.items()
     )
     
@@ -67,25 +68,27 @@ def generate_launch_description():
         output='screen'  # Shows print/log statements in the terminal
     )
 
-    laser_scan_clustering = Node( 
-        package='group14_assignment_1',
-        executable='laser_scan_clustering',  
-        output='screen'
-    )
-
     cylinders_finder = Node(
         package='group14_assignment_1',
         executable='cylinders_finder',  
         output='screen'
     )
 
+#
+    #Launch for the clinet
+   # burrow_client = Node(
+    #    package='group14_ex4',
+     #   executable='burrow_client',
+     #   output='screen'
+    #)
 
+    # --- 3. Return the LaunchDescription ---
     return LaunchDescription([
         include_assignment_1_launch,
         apriltag_group,
         cervellone,
-        laser_scan_clustering,
         cylinders_finder
+        #burrow_client
     ])
 
 

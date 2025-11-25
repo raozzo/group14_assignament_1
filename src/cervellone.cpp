@@ -26,7 +26,7 @@
 
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
-
+#include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 
 //utils services and messages
 #include "group14_assignment_1/utils.hpp"
@@ -40,6 +40,7 @@ using namespace std::chrono_literals;
 class Cervellone : public rclcpp::Node
 {
   public:
+  using ManageLifecycleNodes = nav2_msgs::srv::ManageLifecycleNodes;
   using LookForTables = group14_interfaces::srv::LookForTables;
   using TableMsg = group14_interfaces::msg::Table;
   using NavigateToPose = nav2_msgs::action::NavigateToPose;
@@ -50,17 +51,28 @@ class Cervellone : public rclcpp::Node
   {
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());    
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-      
+         
     goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose", 10);
+    
+    //al posto che utilizzare autostart
+
+
     // Create the publisher
     init_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/initialpose", 10);
+   
+     
+    client_localization_ = this->create_client<ManageLifecycleNodes>(
+        "/lifecycle_manager_localization/manage_nodes");
     
-    // Give time for subscribers to connect, then publish
-    // (A 2-second timer that runs ONCE is a simple way to do this)
+    client_navigation_ = this->create_client<ManageLifecycleNodes>(
+            "/lifecycle_manager_navigation/manage_nodes");
+
+ 
+    // Give time for subscribers to connect, then publish 
     init_timer_ = this->create_wall_timer(10s, [this]() {
-      this->initialize_localization();
-      // Cancel this timer so it only runs once
+      //this->initialize_localization(); now we have to start it after the navigagation stack
+      this->startup_full_stack();
       this->init_timer_->cancel();
     });
 
@@ -94,6 +106,61 @@ class Cervellone : public rclcpp::Node
   // Flag to know if we are currently paused
   bool is_navigation_paused_ = false;
   
+  rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_localization_;
+  rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_navigation_;
+  rclcpp::Client<ManageLifecycleNodes>::SharedPtr lifecycle_client_;
+ 
+  void startup_full_stack()
+  {
+    // --- STEP 1: Start Localization (Map & AMCL) ---
+    
+    if (!client_localization_->wait_for_service(std::chrono::seconds(2))) {
+        RCLCPP_ERROR(this->get_logger(), "Localization Manager not found!");
+        return;
+    }
+
+    auto request = std::make_shared<ManageLifecycleNodes::Request>();
+    request->command = ManageLifecycleNodes::Request::STARTUP; 
+
+    RCLCPP_INFO(this->get_logger(), "Requesting LOCALIZATION Startup...");
+
+    client_localization_->async_send_request(request, [this](rclcpp::Client<ManageLifecycleNodes>::SharedFuture future_loc) {
+      if (future_loc.get()->success) 
+      {
+        RCLCPP_INFO(this->get_logger(), "Localization Active");
+       //need to fic initial pose before navigation 
+        this->initialize_localization();
+
+        //NOTE: navigation start
+        this->startup_navigation();          
+      } else 
+      {
+        RCLCPP_ERROR(this->get_logger(), "Failed to start Localization.");
+      }
+    });
+  }
+
+  void startup_navigation()
+  {
+    if (!client_navigation_->wait_for_service(std::chrono::seconds(2))) {
+        RCLCPP_ERROR(this->get_logger(), "Navigation Manager not found!");
+        return;
+    }
+
+    auto request = std::make_shared<ManageLifecycleNodes::Request>();
+    request->command = ManageLifecycleNodes::Request::STARTUP; 
+
+    RCLCPP_INFO(this->get_logger(), "Requesting NAVIGATION Startup...");
+
+    client_navigation_->async_send_request(request, [this](rclcpp::Client<ManageLifecycleNodes>::SharedFuture future_nav) {
+      if (future_nav.get()->success) 
+      {
+        RCLCPP_INFO(this->get_logger(), "Navigation Active.");
+      } else {
+        RCLCPP_ERROR(this->get_logger(), "Failed to start Navigation.");
+      }
+    });
+  }  
   
   //function to transform from map to odom
   void log_pose_in_odom(geometry_msgs::msg::PoseStamped input_pose, std::string label)
@@ -178,11 +245,19 @@ class Cervellone : public rclcpp::Node
     RCLCPP_WARN(this->get_logger(), "Stopping Robot...");
 
     // Cancel the goal
-    this->nav_client_->async_cancel_goal(this->current_goal_handle_);
-    
-    // Mark as paused so we know we intend to resume later
-    this->is_navigation_paused_ = true;
-    
+    //TODO:  controlla cancellazione 
+    this->nav_client_->async_cancel_goal(this->current_goal_handle_, [this](const auto & cancel_response) { // Callback function
+      if (cancel_response->return_code == action_msgs::srv::CancelGoal::Response::ERROR_NONE) 
+      {
+        RCLCPP_INFO(this->get_logger(), "STOP CONFIMED: Goal successfully canceled");
+        //it's actually cancelled so i can pause 
+        this->is_navigation_paused_ = true;          
+      } else {
+        RCLCPP_ERROR(this->get_logger(), "STOP FAILED: Cancellation rejecte");
+        //HACK:retry
+        stop_navigation();
+      }
+    });
   }
 
 
@@ -253,7 +328,6 @@ class Cervellone : public rclcpp::Node
   std::string tag1_frame_ = "tag36h11:10"; 
   std::string tag2_frame_ = "tag36h11:1";
 
-  //FIX: THIS NEED TO BE FIXED (SEE TODO header)
   std::string world_frame_ = "map";
   //std::string world_frame_ = "odom";
 
@@ -323,6 +397,7 @@ class Cervellone : public rclcpp::Node
 
   void calculate_goal()
   {
+   // startup_nav2_stack();
     if (goal_sent_) { return; } 
     
     bool t1_found = false;
@@ -352,6 +427,10 @@ class Cervellone : public rclcpp::Node
 
     // If BOTH are found
     if (t1_found && t2_found) {
+      
+      //when both tags are found i start navigation stack
+      //startup_nav2_stack();
+      
       RCLCPP_INFO(this->get_logger(), "BOTH TAGS FOUND! Calculating midpoint...");
       
       //calculate the midpoint
