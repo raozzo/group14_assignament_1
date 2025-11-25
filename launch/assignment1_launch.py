@@ -68,11 +68,25 @@ def generate_launch_description():
         output='screen'  # Shows print/log statements in the terminal
     )
 
+    corridor_detector = Node(
+        package='group14_assignment_1',
+        executable='corridor_detector',  
+        output='screen'
+    )
+
+    corridor_navigator = Node(
+        package='group14_assignment_1',
+        executable='corridor_navigator',  
+        output='screen'
+    )
+
     cylinders_finder = Node(
         package='group14_assignment_1',
         executable='cylinders_finder',  
         output='screen'
     )
+
+   
 
 #
     #Launch for the clinet
@@ -87,6 +101,8 @@ def generate_launch_description():
         include_assignment_1_launch,
         apriltag_group,
         cervellone,
+        corridor_detector,
+        corridor_navigator,
         cylinders_finder
         #burrow_client
     ])
