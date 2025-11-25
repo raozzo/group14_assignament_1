@@ -8,7 +8,6 @@
 //  1. correggere logica di nav to goal
 //  
 
-
 //CPP LIBRARIES 
 #include <chrono>
 #include <memory>
@@ -55,8 +54,6 @@ class Cervellone : public rclcpp::Node
     goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose", 10);
     
     //al posto che utilizzare autostart
-
-
     // Create the publisher
     init_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/initialpose", 10);
@@ -66,7 +63,7 @@ class Cervellone : public rclcpp::Node
         "/lifecycle_manager_localization/manage_nodes");
     
     client_navigation_ = this->create_client<ManageLifecycleNodes>(
-            "/lifecycle_manager_navigation/manage_nodes");
+        "/lifecycle_manager_navigation/manage_nodes");
 
  
     // Give time for subscribers to connect, then publish 
@@ -75,7 +72,9 @@ class Cervellone : public rclcpp::Node
       this->startup_full_stack();
       this->init_timer_->cancel();
     });
+    
 
+    //FIX: CHIAMA DOPO 
     timer_ = this->create_wall_timer(1.0s, std::bind(&Cervellone::calculate_goal, this));
     
     // Initialize action for nv2pose
@@ -128,7 +127,8 @@ class Cervellone : public rclcpp::Node
       if (future_loc.get()->success) 
       {
         RCLCPP_INFO(this->get_logger(), "Localization Active");
-       //need to fic initial pose before navigation 
+        
+        //need to fic initial pose before navigation 
         this->initialize_localization();
 
         //NOTE: navigation start
@@ -160,7 +160,7 @@ class Cervellone : public rclcpp::Node
         RCLCPP_ERROR(this->get_logger(), "Failed to start Navigation.");
       }
     });
-  }  
+  }
   
   //function to transform from map to odom
   void log_pose_in_odom(geometry_msgs::msg::PoseStamped input_pose, std::string label)
@@ -204,7 +204,7 @@ class Cervellone : public rclcpp::Node
         std::bind(&Cervellone::process_tables_response, this, std::placeholders::_1));
   }
 
-    //Handle response 
+  //Handle response 
   void process_tables_response(rclcpp::Client<LookForTables>::SharedFuture future)
   {
     auto result = future.get();
@@ -277,17 +277,17 @@ class Cervellone : public rclcpp::Node
   }
   
   void corridor_callback(const std_msgs::msg::Bool::SharedPtr msg)
-    {
-        if (msg->data) {
-            // TRUE = Corridor Ended -> STOP
-            RCLCPP_WARN(this->get_logger(), "Manual Trigger: STOPPING for Corridor!");
-            this->stop_navigation();
-        } else {
-            // FALSE = Corridor ended -> RESUME
-            RCLCPP_INFO(this->get_logger(), "Manual Trigger: RESUMING Navigation!");
-            this->resume_navigation();
-        }
+  {
+    if (msg->data) {
+      // TRUE = Corridor Ended -> STOP
+      RCLCPP_WARN(this->get_logger(), "Manual Trigger: STOPPING for Corridor!");
+      this->stop_navigation();
+    } else {
+      // FALSE = Corridor ended -> RESUME
+      RCLCPP_INFO(this->get_logger(), "Manual Trigger: RESUMING Navigation!");
+      this->resume_navigation();
     }
+  }
 
   void initialize_localization()
   {
