@@ -55,6 +55,22 @@ ament_target_dependencies(
   rclcpp tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs visualization_msgs group14_interfaces
 )
 
+add_executable(corridor_detector src/corridor_detector.cpp)
+ament_target_dependencies(
+  corridor_detector
+  rclcpp
+  std_msgs              
+  geometry_msgs         
+)
+
+add_executable(corridor_navigator src/corridor_navigator.cpp)
+ament_target_dependencies(
+  corridor_navigator
+  rclcpp
+  std_msgs             
+  geometry_msgs        
+)
+
 # Install launch files
 install(DIRECTORY
   launch
@@ -69,7 +85,7 @@ install(DIRECTORY include/
 
 #install cervellone
 install(TARGETS
-  cervellone cylinders_finder laser_scan_clustering
+  cervellone cylinders_finder laser_scan_clustering corridor_detector corridor_navigator
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -33,8 +33,8 @@ public:
 
 private:
     // Constants
-    const double START_DISTANCE = 3.0;  // m (Distanza per entrare nel corridoio)
-    const double END_DISTANCE = 10.0;    // m (Distanza per uscire dal corridoio)
+    const double START_DISTANCE = 5.5;  // m (Distanza per entrare nel corridoio)
+    const double END_DISTANCE = 15.0;    // m (Distanza per uscire dal corridoio)
     const double CORRIDOR_VELOCITY = 0.3; // m/s (Velocità fissa per la simulazione END)
     
     // State variables
@@ -120,9 +120,9 @@ private:
         corridor_trigger_pub_->publish(bool_msg);
 
         if (state) {
-             RCLCPP_INFO(this->get_logger(), "🚨 TRIGGERED START! Published 'in_corridor: true' on /corridor_trigger.");
+             RCLCPP_INFO(this->get_logger(), " TRIGGERED START! Published 'in_corridor: true' on /corridor_trigger.");
         } else {
-             RCLCPP_INFO(this->get_logger(), "✅ TRIGGERED END! Published 'in_corridor: false' on /corridor_trigger.");
+             RCLCPP_INFO(this->get_logger(), " TRIGGERED END! Published 'in_corridor: false' on /corridor_trigger.");
         }
     }
 
