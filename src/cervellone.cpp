@@ -1,5 +1,5 @@
 //TODO: 
-//  5. Dividere cervellone in diversi nodi
+//  STARTED NODE SPLITTING
 
 //DONE:
 //  1. correggere logica di nav to goal
@@ -63,7 +63,6 @@ class Cervellone : public rclcpp::Node
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());    
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-
     //Publisher settings 
     init_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/initialpose", 10);
@@ -84,8 +83,26 @@ class Cervellone : public rclcpp::Node
             "/corridor_trigger",
             2,
             std::bind(&Cervellone::corridor_callback, this, std::placeholders::_1));
+     
+    //Subscrbing to the apriltag publisher (in this topic we will receive the goal coordiantes)
+    goal_subscription_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "goal_in_map_frame",
+            10,
+            std::bind(&Cervellone::goal_callback_, this, std::placeholders::_1));
+   
 
-    // After 1s, start trying to calculate goal position in loop, until both tags tf are visible
+    // After 3s, start trying to send the goal to nav 2 
+    timer_ = this->create_wall_timer(
+            3.0s,
+            [this](){
+              if (navigation_ready_)
+              {
+                send_goal_to_nav2();
+              }
+            }
+    );
+
+
     //RCLCPP_INFO(this->get_logger(), "Waiting 1s before calculating goal.");
     //timer_ = this->create_wall_timer(
     //        1.0s,
@@ -288,13 +305,7 @@ class Cervellone : public rclcpp::Node
       if (future_nav.get()->success) 
       {
         RCLCPP_INFO(this->get_logger(), "Navigation Active.");
-        while (!has_goal_)
-        {
-          //I wait since i have a goal when i have it i will send it
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "Goal received, sending it to nav2");
-        send_goal_to_nav2();
+        navigation_ready_ = true;        
       } 
       else 
       {
@@ -481,7 +492,7 @@ class Cervellone : public rclcpp::Node
     
     nav2_msgs::action::NavigateToPose::Goal g;
     auto goal_msg = NavigateToPose::Goal();
-    goal_msg.pose = goal_; 
+    goal_msg.pose =most_recent_goal_pose; 
 
     RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
 
@@ -491,17 +502,17 @@ class Cervellone : public rclcpp::Node
     this->active_target_pose_ = goal_;
 
     // Callback when goal is accepted/rejected
-    send_goal_options.goal_response_callback = [this](const GoalHandleNav::SharedPtr & goal_handle) {
+    send_goal_options.goal_response_callback = [this](const GoalHandleNav::SharedPtr &goal_handle) {
       if (!goal_handle) {
-        RCLCPP_ERROR(this->get_logger(), "GOAL REJECTKD");
+        RCLCPP_ERROR(this->get_logger(), "GOAL REJECTED");
       } else {
-        goal_sent_ = true;
-
         // save the goal handle and bool update 
         this->current_goal_handle_ = goal_handle; 
         this->is_navigation_paused_ = false; // Reset pause flag
-
-        RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+        RCLCPP_INFO(this->get_logger(), "Goal [odom: %lf, %lf; time %d] accepted by server, waiting for result",
+            goal_msg.pose.pose.position.x,
+            goal_msg.pose.pose.position.y,
+            goal_msg.pose.header.stamp.sec);
       }
     };
 
@@ -509,22 +520,32 @@ class Cervellone : public rclcpp::Node
     // Callback when navigation is finished
     send_goal_options.result_callback = [this](const GoalHandleNav::WrappedResult & result)
     {
-     switch (result.code) 
-     {
+      switch (result.code)
+      {
         case rclcpp_action::ResultCode::SUCCEEDED:
-          RCLCPP_INFO(this->get_logger(), "Navigation SUCCEEDED!");
-          //when the navigation is finsished i want to wait a little and the report the tables found and the tag postion in odom
-          //table
-          this->request_table_detection();
+          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation SUCCEEDED!",
+              goal_msg.pose.pose.position.x,
+              goal_msg.pose.pose.position.y,
+              goal_msg.pose.header.stamp.sec);
+              this->request_table_detection();
           break;
         case rclcpp_action::ResultCode::ABORTED:
-          RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
+          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation ABORTED!",
+              goal_msg.pose.pose.position.x,
+              goal_msg.pose.pose.position.y,
+              goal_msg.pose.header.stamp.sec);
           break;
         case rclcpp_action::ResultCode::CANCELED:
-          RCLCPP_ERROR(this->get_logger(), "Navigation was CANCELED");
+          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation CANCELED!",
+              goal_msg.pose.pose.position.x,
+              goal_msg.pose.pose.position.y,
+              goal_msg.pose.header.stamp.sec);
           break;
         default:
-          RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Unknown result!",
+              goal_msg.pose.pose.position.x,
+              goal_msg.pose.pose.position.y,
+              goal_msg.pose.header.stamp.sec);
           break;
       }
     };
@@ -532,7 +553,13 @@ class Cervellone : public rclcpp::Node
     // Send the goal
     this->nav_client_->async_send_goal(goal_msg, send_goal_options);
   };
-
+  
+  /* REACTION TO GOALS*/
+  void goal_callback_(const geometry_msgs::msg::PoseStamped &goal)
+  {
+    RCLCPP_INFO(this->get_logger(), "Goal received.");
+    most_recent_goal_pose_ = goal;
+  }
 };
 
 
