@@ -1,12 +1,11 @@
 //TODO: 
-//  2. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
-//  3. errore sincronizzazione camera
-//  4. stampare posizini tavoli riferite a odom 
 //  5. Dividere cervellone in diversi nodi
 
 //DONE:
 //  1. correggere logica di nav to goal
-//  
+  //  2. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
+//  3. errore sincronizzazione camera
+//  4. stampare posizini tavoli riferite a odom 
 
 //CPP LIBRARIES 
 #include <chrono>
@@ -58,7 +57,7 @@ class Cervellone : public rclcpp::Node
         "/lifecycle_manager_localization/manage_nodes"); 
     client_navigation_ = this->create_client<ManageLifecycleNodes>(
         "/lifecycle_manager_navigation/manage_nodes"); 
-    this->nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
+    nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
     
     //TF listener initialization 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());    
@@ -74,7 +73,7 @@ class Cervellone : public rclcpp::Node
     startup_thread_ = std::thread(&Cervellone::wait_for_services_and_startup, this);
 
     //when apriltags are detected
-     apriltags_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>(
+    apriltags_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>(
             "/apriltag/detections",
             rclcpp::SensorDataQoS(),
             std::bind(&Cervellone::apriltag_callback, this, std::placeholders::_1));
@@ -87,10 +86,10 @@ class Cervellone : public rclcpp::Node
             std::bind(&Cervellone::corridor_callback, this, std::placeholders::_1));
 
     // After 1s, start trying to calculate goal position in loop, until both tags tf are visible
-    RCLCPP_INFO(this->get_logger(), "Waiting 1s before calculating goal.");
-    timer_ = this->create_wall_timer(
-            1.0s,
-            std::bind(&Cervellone::calculate_goal, this));
+    //RCLCPP_INFO(this->get_logger(), "Waiting 1s before calculating goal.");
+    //timer_ = this->create_wall_timer(
+    //        1.0s,
+    //        std::bind(&Cervellone::calculate_goal, this));
 
     //FIX: thanks to the thresd we can delete this  Give time for subscribers to connect, then publish 
     //init_timer_ = this->create_wall_timer(10s, [this]() {
@@ -137,12 +136,18 @@ class Cervellone : public rclcpp::Node
   
   // we don't need to redo the calculation if already done 
   bool goal_sent_ = false;
+  bool apriltags_available = false;
+  bool has_goal_ = false;
 
-  std::string tag1_frame_ = "tag36h11:10"; 
-  std::string tag2_frame_ = "tag36h11:1";
+  std::string TAG1_FRAME_ID = "tag36h11:10"; 
+  std::string TAG2_FRAME_ID = "tag36h11:1";
+  const int TAG1_ID = 1;
+  const int TAG2_ID = 10;
 
-  std::string world_frame_ = "map";
-  //std::string world_frame_ = "odom";
+  std::string MAP_FRAME_ID = "map";
+  std::string ODOM_FRAME_ID = "odom";
+  geometry_msgs::msg::PoseStamped goal_;
+
 
   //INFO: --------STARTUP WAITING---------
   std::thread startup_thread_;
@@ -185,8 +190,29 @@ class Cervellone : public rclcpp::Node
 
   void apriltag_callback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg)
   {
-    // RCLCPP_INFO(this->get_logger(), "Apriltag callback called");
-    (void)msg;
+    if (msg->detections.empty() || goal_sent_) {return;}
+
+    bool tag1_detected = false;
+    bool tag2_detected = false;
+
+    for (const apriltag_msgs::msg::AprilTagDetection &tag : msg->detections)
+    {
+      if (tag.id == TAG1_ID)
+        {tag1_detected = true;}
+      if (tag.id == TAG2_ID)
+        {tag2_detected = true;}
+    }
+    if (tag1_detected && tag2_detected)
+    {
+      //if i found both it means that are avaiable 
+      apriltags_available = true;
+      //I then calclate the goal
+      calculate_goal(msg->header);
+    }
+    else
+    {
+      apriltags_available = false;
+    }
   }
 
   void startup_full_stack()
@@ -220,7 +246,7 @@ class Cervellone : public rclcpp::Node
     });
   }
 
-  // CAMBIATO NOME ALLA FUNZIONE (LOCALIZATION PUO' ESSERE CONFUSO CON LA LOC. DI NAV2)
+  // Function to set the inital pose
   void set_initial_pose()
   {
     auto msg = geometry_msgs::msg::PoseWithCovarianceStamped();
@@ -262,7 +288,16 @@ class Cervellone : public rclcpp::Node
       if (future_nav.get()->success) 
       {
         RCLCPP_INFO(this->get_logger(), "Navigation Active.");
-      } else {
+        while (!has_goal_)
+        {
+          //I wait since i have a goal when i have it i will send it
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "Goal received, sending it to nav2");
+        send_goal_to_nav2();
+      } 
+      else 
+      {
         RCLCPP_ERROR(this->get_logger(), "Failed to start Navigation.");
       }
     });
@@ -290,84 +325,46 @@ class Cervellone : public rclcpp::Node
     }
   }
 
-  void calculate_goal()
+  void calculate_goal(const std_msgs::msg::Header header)
   {
-    // startup_nav2_stack();
+    //If the goal is already sent i don't need to recompute it
     if (goal_sent_) { return; } 
     
-    bool t1_found = false;
-    bool t2_found = false;
+    bool tf_available = false;
+    geometry_msgs::msg::TransformStamped tf_tag1, tf_tag2;
 
-    geometry_msgs::msg::TransformStamped t1, t2;
-    
-    // to DEBug i try to find each singular tag, then it can be slimmed 
-    // Try to find Tag 1
-      try {
-        t1 = tf_buffer_->lookupTransform(world_frame_, tag1_frame_, tf2::TimePointZero);
-        t1_found = true;
-      }  catch (const tf2::TransformException & ex) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                  "Could not find %s: %s", tag1_frame_.c_str(), ex.what());
-      }
+    try
+    {
+      tf_tag1 = tf_buffer_->lookupTransform(ODOM_FRAME_ID, TAG1_FRAME_ID, tf2::TimePointZero);
+      tf_tag2 = tf_buffer_->lookupTransform(ODOM_FRAME_ID, TAG2_FRAME_ID, tf2::TimePointZero);
+      tf_available = true;
+    }
+    catch (const tf2::TransformException &ex)
+    {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+          "Could not find transforms from %s or %s to %s: %s",
+          TAG1_FRAME_ID.c_str(),
+          TAG2_FRAME_ID.c_str(),
+          ODOM_FRAME_ID.c_str(),
+          ex.what()
+      );
+    }
 
-       // Try to find Tag 2
-      try {
-        t2 = tf_buffer_->lookupTransform(world_frame_, tag2_frame_, tf2::TimePointZero);
-        t2_found = true;
-      } catch (const tf2::TransformException & ex) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                 "Could not find %s: %s", tag2_frame_.c_str(), ex.what());
-      }
-    
+    if (tf_available)
+    {
+      RCLCPP_INFO(this->get_logger(), "Calculating midpoint between apriltags");
+      geometry_msgs::msg::PoseStamped mid_point_odom;
+      mid_point_odom.header.stamp = header.stamp;
+      mid_point_odom.header.frame_id = ODOM_FRAME_ID;
+      mid_point_odom.pose.position.x = (tf_tag1.transform.translation.x + tf_tag2.transform.translation.x) / 2.0;
+      mid_point_odom.pose.position.y = (tf_tag1.transform.translation.y + tf_tag2.transform.translation.y) / 2.0;
+      mid_point_odom.pose.position.z = 0.0;
+      mid_point_odom.pose.orientation.w = 1.0;
 
-    // If BOTH are found
-    if (t1_found && t2_found) {
-      
-      //when both tags are found i start navigation stack
-      //startup_nav2_stack();
-      
-      RCLCPP_INFO(this->get_logger(), "BOTH TAGS FOUND! Calculating midpoint...");
-      
-      //calculate the midpoint
-      double mid_x = (t1.transform.translation.x + t2.transform.translation.x) / 2.0;
-      double mid_y = (t1.transform.translation.y + t2.transform.translation.y) / 2.0;
-      
-      //creation of the pose goal
-      geometry_msgs::msg::PoseStamped goal_pose;
-      goal_pose.header.stamp = this->get_clock()->now();
-      goal_pose.header.frame_id = world_frame_;
-            
-      goal_pose.pose.position.x = mid_x;
-      goal_pose.pose.position.y = mid_y;
-      goal_pose.pose.position.z = 0.0;
-      goal_pose.pose.orientation.w = 1.0;
-
-      //now i have to publish the postion to nav 2
-      if (this->nav_client_->action_server_is_ready()) {
-        send_goal_to_nav2(goal_pose);
-        //goal_sent_ = true; 
-      } else {
-        RCLCPP_WARN(this->get_logger(), "Nav2 not ready yet, retrying...");
-      }
-      
-      //for now i only print in terminal do i can grep it and check      
-      RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<", mid_x, mid_y);
-
-      geometry_msgs::msg::PoseStamped t1_pose;
-      geometry_msgs::msg::PoseStamped t2_pose;
-      t1_pose.header = t1.header;
-      t1_pose.pose.position.x = t1.transform.translation.x;
-      t1_pose.pose.position.y = t1.transform.translation.y;
-      t1_pose.pose.position.z = t1.transform.translation.z;
-      t1_pose.pose.orientation = t1.transform.rotation;
-      log_pose_in_odom(t1_pose, "TAG1");
-      t2_pose.header = t2.header;
-      t2_pose.pose.position.x = t2.transform.translation.x;
-      t2_pose.pose.position.y = t2.transform.translation.y;
-      t2_pose.pose.position.z = t2.transform.translation.z;
-      t2_pose.pose.orientation = t2.transform.rotation;
-      log_pose_in_odom(t2_pose, "TAG2");
-      
+      RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<",
+          mid_point_odom.pose.position.x, mid_point_odom.pose.position.y);
+      has_goal_ = true;
+      goal_ = mid_point_odom;
     }
   } 
 
@@ -456,7 +453,7 @@ class Cervellone : public rclcpp::Node
     RCLCPP_INFO(this->get_logger(), "End of corridor resuming navigation to original target...");
 
     // send again the saved pose
-    send_goal_to_nav2(this->active_target_pose_);
+    send_goal_to_nav2();
     
     this->is_navigation_paused_ = false;
   }
@@ -475,22 +472,23 @@ class Cervellone : public rclcpp::Node
   }
  
   // start navigation to goal 
-  void send_goal_to_nav2(geometry_msgs::msg::PoseStamped goal_pose)
+  void send_goal_to_nav2()
   {
     if (!this->nav_client_->wait_for_action_server(std::chrono::seconds(5))) {
       RCLCPP_ERROR(this->get_logger(), "NAV ACTION NOT READY");
       return;
     }
-
+    
+    nav2_msgs::action::NavigateToPose::Goal g;
     auto goal_msg = NavigateToPose::Goal();
-    goal_msg.pose = goal_pose; 
+    goal_msg.pose = goal_; 
 
     RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
 
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
     
     //Save the goal in case of stop/resume 
-    this->active_target_pose_ = goal_pose;
+    this->active_target_pose_ = goal_;
 
     // Callback when goal is accepted/rejected
     send_goal_options.goal_response_callback = [this](const GoalHandleNav::SharedPtr & goal_handle) {
@@ -518,9 +516,6 @@ class Cervellone : public rclcpp::Node
           //when the navigation is finsished i want to wait a little and the report the tables found and the tag postion in odom
           //table
           this->request_table_detection();
-          //FIX:tags
-          //log_pose_in_odom(t1, "TAG1");
-          //log_pose_in_odom(t2, "TAG2");
           break;
         case rclcpp_action::ResultCode::ABORTED:
           RCLCPP_ERROR(this->get_logger(), "Navigation was ABORTED");
