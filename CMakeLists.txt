@@ -18,6 +18,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
+find_package(apriltag_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -40,6 +41,7 @@ ament_target_dependencies(
   tf2_geometry_msgs
   geometry_msgs
   group14_interfaces
+  apriltag_msgs
 )
 
 add_executable(cylinders_finder src/cylinders_finder.cpp)
