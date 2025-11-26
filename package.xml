@@ -21,6 +21,7 @@
   <depend>nav2_msgs</depend>
   <depend>rclcpp_action</depend>
   <depend>sensor_msgs</depend>
+  <depend>apriltag_msgs</depend>
   <depend>group14_interfaces</depend>
 
   <test_depend>ament_lint_auto</test_depend>
