@@ -25,7 +25,7 @@ somewhere in the room.
 - [x] 3.detection of tables using any available sensor
 - [x] 4.return the position of tables relative to odom reference frame
 
-[ ] **OPTIONAL (+3 points):** Stop the navigation to goal when the turtlebot enters the corridor and implement your own
+- [ ] **OPTIONAL (+3 points):** Stop the navigation to goal when the turtlebot enters the corridor and implement your own
 navigation method sending velocity commands to the robot and detecting the walls with the
 lidar. Once at the end of it, resume the navigation to the goal.
 
