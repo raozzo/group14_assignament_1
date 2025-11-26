@@ -58,9 +58,7 @@ ament_target_dependencies(
 add_executable(corridor_detector src/corridor_detector.cpp)
 ament_target_dependencies(
   corridor_detector
-  rclcpp
-  std_msgs              
-  geometry_msgs         
+  rclcpp std_msgs tf2 tf2_ros tf2_geometry_msgs geometry_msgs sensor_msgs visualization_msgs group14_interfaces        
 )
 
 add_executable(corridor_navigator src/corridor_navigator.cpp)

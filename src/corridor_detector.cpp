@@ -1,142 +1,208 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "group14_interfaces/msg/cluster_array.hpp" 
 #include <chrono>
 #include <memory>
 #include <cmath>
 #include <functional>
+#include <algorithm>
+#include <numeric>
+#include <limits> // For infinity
 
 using namespace std::chrono_literals;
+
+// Constants for Corridor Detection
+const double MIN_WALL_CLUSTER_SIZE = 45.0;     // Min points for a cluster to be considered a wall segment
+const double MIN_CORRIDOR_WIDTH = 1.0;        // Minimum distance between the two walls 
+const double MAX_CORRIDOR_WIDTH = 3.30;       // Max width 
+const double Y_SIDE_THRESHOLD = 0.5;          // Minimum absolute Y-distance to be considered a side wall
+
+const double MIN_WALL_SEGMENT_LENGTH = 2.15;   // Minimum length of the cluster segment to be a wall
+const double MAX_NON_LINEARITY_ERROR = 0.17;   // Maximum allowed error from a straight line (Tolerance for non-straight walls)
 
 class CorridorDetector : public rclcpp::Node
 {
 public:
     CorridorDetector() : Node("corridor_detector")
     {
-        // 1. Inizializzazione Publisher e Subscriber
+        RCLCPP_INFO(this->get_logger(), "Corridor Detector node started.");
+
+        // Publisher for the corridor trigger
         corridor_trigger_pub_ = this->create_publisher<std_msgs::msg::Bool>("/corridor_trigger", 10);
         
-        // Sottoscrizione a /cmd_vel per ottenere la velocità effettiva (per la fase START)
-        cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", 10, std::bind(&CorridorDetector::cmd_vel_callback, this, std::placeholders::_1));
+        // Subscription to the clustered scan data
+        RCLCPP_INFO(this->get_logger(), "Subscribing to /laser_scan_clustering for wall detection.");
+        clustered_scan_subscription_ =
+            this->create_subscription<group14_interfaces::msg::ClusterArray>(
+                "/laser_scan_clustering",
+                rclcpp::QoS(10),
+                std::bind(&CorridorDetector::process_clustered_scan_, this, std::placeholders::_1));
 
-        // Timer di integrazione ad alta frequenza (es. 50ms)
-        integration_timer_ = this->create_wall_timer(
-            50ms, 
-            std::bind(&CorridorDetector::integration_callback, this)
-        );
-
-        RCLCPP_INFO(this->get_logger(), "Corridor Detector initialized (Integrated Velocity START/END).");
-        RCLCPP_INFO(this->get_logger(), "START distance: %.1fm (using /cmd_vel). END distance: %.1fm (simulated at %.1f m/s).", 
-            START_DISTANCE, END_DISTANCE, CORRIDOR_VELOCITY);
+        RCLCPP_INFO(this->get_logger(), "Corridor Detector initialized (Cluster-Based Logic).");
     }
 
 private:
-    // Constants
-    const double START_DISTANCE = 5.5;  // m (Distanza per entrare nel corridoio)
-    const double END_DISTANCE = 15.0;    // m (Distanza per uscire dal corridoio)
-    const double CORRIDOR_VELOCITY = 0.3; // m/s (Velocità fissa per la simulazione END)
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr corridor_trigger_pub_;
+    rclcpp::Subscription<group14_interfaces::msg::ClusterArray>::SharedPtr clustered_scan_subscription_;
     
-    // State variables
-    double current_distance_ = 0.0;
-    double last_linear_vel_ = 0.0;
-    rclcpp::Time last_time_;
+    // State variable
     bool in_corridor_ = false;
 
-    // ROS 2 Components
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr corridor_trigger_pub_;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-    rclcpp::TimerBase::SharedPtr integration_timer_;
-    rclcpp::TimerBase::SharedPtr end_timer_ = nullptr; // Inizializzato a nullptr
-
-    /**
-     * @brief Aggiorna la variabile di velocità lineare con l'ultimo messaggio ricevuto.
-     */
-    void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
-    {
-        // Usiamo solo la componente lineare X (avanti/indietro)
-        last_linear_vel_ = msg->linear.x; 
-    }
-
-    /**
-     * @brief Callback del timer per l'integrazione della distanza percorsa.
-     */
-    void integration_callback()
-    {
-        rclcpp::Time current_time = this->now();
-        
-        if (last_time_.seconds() != 0.0) // Ignora il primo ciclo
-        {
-            // Calcola il tempo trascorso (delta_t)
-            double dt = (current_time - last_time_).seconds();
-            
-            // Integrazione: Distanza = Velocità * Tempo (solo se non siamo ancora nel corridoio)
-            if (!in_corridor_)
-            {
-                current_distance_ += std::abs(last_linear_vel_) * dt; // Usa il valore assoluto della velocità
-                
-                // --- LOGICA START (Ingresso nel corridoio) ---
-                if (current_distance_ >= START_DISTANCE)
-                {
-                    RCLCPP_INFO(this->get_logger(), "Distance %.2f m reached (Target %.1f m).", current_distance_, START_DISTANCE);
-                    
-                    // 1. Pubblica il segnale di TRUE
-                    publish_trigger(true);
-                    in_corridor_ = true;
-                    
-                    // 2. Disattiva il timer di integrazione (non serve più)
-                    integration_timer_->cancel();
-
-                    // 3. Calcola e avvia il timer di END
-                    // Tempo rimanente per uscire dal corridoio: (END_DISTANCE - START_DISTANCE) / CORRIDOR_VELOCITY
-                    double remaining_distance = END_DISTANCE - START_DISTANCE; // 3.0 m
-                    double end_time_seconds = remaining_distance / CORRIDOR_VELOCITY; // 3.0 / 0.3 = 10.0 secondi
-                    
-                    RCLCPP_INFO(this->get_logger(), "Starting END timer for %.2f seconds (simulated remaining %.1fm at %.1f m/s).", 
-                        end_time_seconds, remaining_distance, CORRIDOR_VELOCITY);
-
-                    const auto END_DELAY = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::duration<double>(end_time_seconds)
-                    );
-                    
-                    end_timer_ = this->create_wall_timer(
-                        END_DELAY, 
-                        std::bind(&CorridorDetector::end_trigger_callback, this)
-                    );
-                }
-            }
-        }
-        
-        last_time_ = current_time;
-    }
-
-    /**
-     * @brief Invia il segnale specificato sul topic /corridor_trigger.
-     */
+  
+    // Sends the specified state (true/false) to the /corridor_trigger topic.
     void publish_trigger(bool state)
     {
+        // Avoid sending the same state repeatedly
+        if (state == in_corridor_) return;
+        
         auto bool_msg = std_msgs::msg::Bool();
         bool_msg.data = state;
         corridor_trigger_pub_->publish(bool_msg);
 
+        in_corridor_ = state; // Update internal state
+
         if (state) {
-             RCLCPP_INFO(this->get_logger(), " TRIGGERED START! Published 'in_corridor: true' on /corridor_trigger.");
+             RCLCPP_INFO(this->get_logger(), "Corridor trigger on");
         } else {
-             RCLCPP_INFO(this->get_logger(), " TRIGGERED END! Published 'in_corridor: false' on /corridor_trigger.");
+             RCLCPP_INFO(this->get_logger(), "Corridor trigger off, corridor ended");
         }
     }
 
-    /**
-     * @brief Callback che si attiva per inviare il segnale FALSE (Fine Corridoio).
-     */
-    void end_trigger_callback()
+    // Main logic to process clustered laser scan data and detect corridor walls.
+    void process_clustered_scan_(const group14_interfaces::msg::ClusterArray::SharedPtr clusters)
     {
-        publish_trigger(false);
-        
-        // Disattiviamo il timer di END
-        if (end_timer_) {
-            end_timer_->cancel();
+        // Check if the conditions for a corridor are met
+        bool corridor_detected = check_for_corridor_walls(clusters);
+
+        if (corridor_detected && !in_corridor_) {
+            // Corridor detected and we were previously outside
+            publish_trigger(true);
+        } else if (!corridor_detected && in_corridor_) {
+            // Corridor ended and we were previously inside
+            publish_trigger(false);
         }
+    }
+    
+    /**
+     * @brief Performs simple geometric validation on a cluster to check if it represents a straight wall segment.
+     * Checks for minimum length and maximum non-linearity error.
+     * @param cluster The cluster of points.
+     * @return true if the cluster is linear and long enough, false otherwise.
+     */
+    bool validate_wall_segment(const group14_interfaces::msg::RangePointArray &cluster)
+    {
+        if (cluster.points.empty()) return false;
+
+        // Get the start (p1) and end (p2) points of the cluster
+        const auto& p1 = cluster.points.front().point.point;
+        const auto& p2 = cluster.points.back().point.point;
+
+        // Check minimum Length (Wall segment must be long enough)
+        double segment_length = std::hypot(p2.x - p1.x, p2.y - p1.y);
+        if (segment_length < MIN_WALL_SEGMENT_LENGTH) {
+            RCLCPP_DEBUG(this->get_logger(), "Cluster rejected: Too short (Length: %.2fm).", segment_length);
+            return false;
+        }
+
+        // Check Linearity (Tolerance for non-straight points)
+        // Find the maximum perpendicular distance of any point to the line defined by p1 and p2.
+        
+        double A = p2.y - p1.y;
+        double B = p1.x - p2.x;
+        double C = -A * p1.x - B * p1.y;
+        double sqrt_AB = std::hypot(A, B); // Square root of A^2 + B^2
+
+        if (sqrt_AB < 1e-6) { // Points are too close to define a line
+            return true; 
+        }
+
+        double max_perp_dist = 0.0;
+        for (const auto &rp : cluster.points) {
+            const auto& p = rp.point.point;
+            // Perpendicular distance formula: |Ax + By + C| / sqrt(A^2 + B^2)
+            double dist = std::abs(A * p.x + B * p.y + C) / sqrt_AB;
+            if (dist > max_perp_dist) {
+                max_perp_dist = dist;
+            }
+        }
+        
+        if (max_perp_dist > MAX_NON_LINEARITY_ERROR) {
+            RCLCPP_DEBUG(this->get_logger(), "Cluster rejected: Too curved (Max error: %.2fm).", max_perp_dist);
+            return false;
+        }
+
+        return true;
+    }
+
+    /*
+     * Simplified logic to determine if two parallel walls (corridor) are present.
+     * It requires two large, linear clusters, one on the left and one on the right,
+     * and checks if the distance between them is within the defined corridor width limits.
+     */
+    bool check_for_corridor_walls(const group14_interfaces::msg::ClusterArray::SharedPtr &clusters)
+    {
+        if (clusters->clusters.size() < 2) {
+            return false;
+        }
+
+        // Initialize with extreme values to find the closest points to the robot's center line (X axis)
+        double max_left_y = -std::numeric_limits<double>::infinity(); 
+        double min_right_y = std::numeric_limits<double>::infinity();  
+        
+        bool left_wall_found = false;
+        bool right_wall_found = false;
+
+        for (const auto &cluster : clusters->clusters) {
+            
+            // Basic size check
+            if (cluster.points.size() < MIN_WALL_CLUSTER_SIZE) continue;
+            
+            // Geometric Validation
+            if (!validate_wall_segment(cluster)) continue;
+
+            double sum_y = 0.0;
+            for (const auto &rp : cluster.points) {
+                sum_y += rp.point.point.y;
+            }
+            double avg_y = sum_y / cluster.points.size();
+
+            // 3. Side check
+            if (avg_y < -Y_SIDE_THRESHOLD) { // Potential LEFT Wall (Negative Y)
+                left_wall_found = true;
+                // Find the point closest to the center line (max Y value)
+                for (const auto &rp : cluster.points) {
+                    if (rp.point.point.y > max_left_y) {
+                        max_left_y = rp.point.point.y;
+                    }
+                }
+            } else if (avg_y > Y_SIDE_THRESHOLD) { // Potential RIGHT Wall (Positive Y)
+                right_wall_found = true;
+                // Find the point closest to the center line (min Y value)
+                for (const auto &rp : cluster.points) {
+                    if (rp.point.point.y < min_right_y) {
+                        min_right_y = rp.point.point.y;
+                    }
+                }
+            }
+        }
+        
+        // Final Condition Check (Requires both walls to be found)
+        if (!left_wall_found || !right_wall_found) {
+            return false;
+        }
+
+        // Check the distance (width) between the closest points of the two walls
+        double measured_width = min_right_y - max_left_y;
+        
+        RCLCPP_DEBUG(this->get_logger(), "Corridor check: Measured Width: %.2fm (Limits: %.1f-%.1f)", 
+            measured_width, MIN_CORRIDOR_WIDTH, MAX_CORRIDOR_WIDTH);
+
+        if (measured_width >= MIN_CORRIDOR_WIDTH && measured_width <= MAX_CORRIDOR_WIDTH) {
+            return true;
+        }
+
+        return false;
     }
 };
 

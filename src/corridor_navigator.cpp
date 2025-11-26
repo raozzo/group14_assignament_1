@@ -33,7 +33,7 @@ public:
     }
 
 private:
-    const double CORRIDOR_LINEAR_VELOCITY = 0.3; // m/s
+    const double CORRIDOR_LINEAR_VELOCITY = 0.4; // m/s
     
     // State to know if we are in the corridor and should be moving
     bool in_corridor_ = false;
