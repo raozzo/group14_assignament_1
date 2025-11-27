@@ -1,17 +1,9 @@
-//TODO: 
-//  STARTED NODE SPLITTING
-
-//DONE:
-//  1. correggere logica di nav to goal
-  //  2. al momento la posizone degli april tag è calcolata su "map" nella consegna deve essere riportata su odom
-//  3. errore sincronizzazione camera
-//  4. stampare posizini tavoli riferite a odom 
-
 //CPP LIBRARIES 
 #include <chrono>
 #include <memory>
 #include <string>
 #include <cmath>
+#include <thread>
 
 //ROS LIBRARIES 
 #include "rclcpp/rclcpp.hpp"
@@ -28,7 +20,6 @@
 #include "apriltag_msgs/msg/april_tag_detection_array.hpp" 
 
 //utils services and messages
-#include "group14_assignment_1/utils.hpp"
 #include "group14_interfaces/srv/look_for_tables.hpp"
 #include "group14_interfaces/msg/table.hpp"
 
@@ -66,7 +57,6 @@ class Cervellone : public rclcpp::Node
     //Publisher settings 
     init_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/initialpose", 10);
-    goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose", 10);
     
     // start a thread to wait for apriltag //INFO: this is to eliminate the need of hard startup timer 
     startup_thread_ = std::thread(&Cervellone::wait_for_services_and_startup, this);
@@ -95,19 +85,6 @@ class Cervellone : public rclcpp::Node
               }
             }
     );
-
-
-    //RCLCPP_INFO(this->get_logger(), "Waiting 1s before calculating goal.");
-    //timer_ = this->create_wall_timer(
-    //        1.0s,
-    //        std::bind(&Cervellone::calculate_goal, this));
-
-    //FIX: thanks to the thresd we can delete this  Give time for subscribers to connect, then publish 
-    //init_timer_ = this->create_wall_timer(10s, [this]() {
-      //this->initialize_localization(); now we have to start it after the navigagation stack
-    //  this->startup_full_stack();
-    //  this->init_timer_->cancel();
-    //});
     
      
     RCLCPP_INFO(this->get_logger(),"Client initialization for table detections ");
@@ -121,13 +98,12 @@ class Cervellone : public rclcpp::Node
   private:
   //initialize robot position to do 2dPose
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pose_pub_;
-  rclcpp::TimerBase::SharedPtr init_timer_; //FIX: maybe not longer needed
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
    
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr corridor_sub_;
 
-  GoalHandleNav::SharedPtr current_goal_handle_; //FIX: maybe not needed
+  GoalHandleNav::SharedPtr current_goal_handle_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_subscription_;
   // Store the target pose so we can re-send it later
@@ -137,20 +113,13 @@ class Cervellone : public rclcpp::Node
   
   rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_localization_;
   rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_navigation_;
-  rclcpp::Client<ManageLifecycleNodes>::SharedPtr lifecycle_client_;
   
   rclcpp::Client<LookForTables>::SharedPtr table_client_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
-  
-  rclcpp::Subscription<apriltag_msgs::msg::AprilTagDetectionArray>::SharedPtr apriltags_sub_; 
-  
-  // we don't need to redo the calculation if already done 
-  bool goal_sent_ = false;
-  bool apriltags_available = false;
-  bool has_goal_ = false;
+
+
   bool navigation_ready_ = false; 
   std::string TAG1_FRAME_ID = "tag36h11:1"; 
   std::string TAG2_FRAME_ID = "tag36h11:10";
@@ -159,7 +128,6 @@ class Cervellone : public rclcpp::Node
 
   std::string MAP_FRAME_ID = "map";
   std::string ODOM_FRAME_ID = "odom";
-  geometry_msgs::msg::PoseStamped goal_;
 
 
   //INFO: --------STARTUP WAITING---------
@@ -204,13 +172,6 @@ class Cervellone : public rclcpp::Node
   
   void startup_full_stack()
   {
-    // we theoretically do not need this wait anymore
-  
-    //if (!client_localization_->wait_for_service(std::chrono::seconds(2))) {
-    //    RCLCPP_ERROR(this->get_logger(), "Localization Manager not found!");
-    //    return;
-    //}
-
     auto request = std::make_shared<ManageLifecycleNodes::Request>();
     request->command = ManageLifecycleNodes::Request::STARTUP; 
 
@@ -238,7 +199,7 @@ class Cervellone : public rclcpp::Node
   {
     auto msg = geometry_msgs::msg::PoseWithCovarianceStamped();
     msg.header.stamp = this->get_clock()->now();
-    msg.header.frame_id = "map";
+    msg.header.frame_id = MAP_FRAME_ID;
 
     // Set the known spawn coordinates from the tutor's file
     msg.pose.pose.position.x = 0; // -8.29;
@@ -260,12 +221,6 @@ class Cervellone : public rclcpp::Node
 
   void startup_navigation()
   {
-    //same as before, theoretically not needed anymore (redundant (?) wait)
-    //if (!client_navigation_->wait_for_service(std::chrono::seconds(2))) {
-    //    RCLCPP_ERROR(this->get_logger(), "Navigation Manager not found!");
-    //    return;
-    //}
-
     auto request = std::make_shared<ManageLifecycleNodes::Request>();
     request->command = ManageLifecycleNodes::Request::STARTUP; 
 
@@ -292,7 +247,7 @@ class Cervellone : public rclcpp::Node
     try 
     {
       // Transform the pose to odom
-      tf_buffer_->transform(input_pose, output_pose, "odom", tf2::durationFromSec(1.0));
+      tf_buffer_->transform(input_pose, output_pose, ODOM_FRAME_ID, tf2::durationFromSec(1.0));
 
       RCLCPP_INFO(this->get_logger(), "REPORT: %s relative to ODOM: [x: %.2f, y: %.2f, z: %.2f]", 
         label.c_str(), 
@@ -341,13 +296,11 @@ class Cervellone : public rclcpp::Node
         const auto& table = result->tables[i];
         geometry_msgs::msg::PoseStamped table_pose;
     
-  
-        table_pose.header.frame_id = "map"; 
+        table_pose.header.frame_id = MAP_FRAME_ID; 
         table_pose.header.stamp = builtin_interfaces::msg::Time();
 
         table_pose.pose.position = table.center.point; 
         table_pose.pose.orientation.w = 1.0;     // To reuse the same function used for tags i assign a default orientation 
-
   
         std::string label = "Table " + std::to_string(i + 1);
         log_pose_in_odom(table_pose, label);
@@ -420,12 +373,6 @@ class Cervellone : public rclcpp::Node
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
     goal_msg.pose = most_recent_goal_pose_; 
 
-    //RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
-
-    //FIX: no loner needed since we update the goal every 3s
-    //Save the goal in case of stop/resume 
-    //this->active_target_pose_ = goal_;
-
     // Callback when goal is accepted/rejected
     send_goal_options.goal_response_callback = [this, goal_msg](const GoalHandleNav::SharedPtr &goal_handle) {
       if (!goal_handle) {
@@ -452,7 +399,8 @@ class Cervellone : public rclcpp::Node
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
-              this->request_table_detection();
+          timer_->cancel(); // Stop setting new goals
+          this->request_table_detection();
           break;
         case rclcpp_action::ResultCode::ABORTED:
           RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation ABORTED!",
@@ -482,7 +430,7 @@ class Cervellone : public rclcpp::Node
   /* REACTION TO GOALS*/
   void goal_callback_(const geometry_msgs::msg::PoseStamped &goal)
   {
-    RCLCPP_INFO(this->get_logger(), "Goal received.");
+    // RCLCPP_INFO(this->get_logger(), "Goal received.");
     most_recent_goal_pose_ = goal;
   }
 };

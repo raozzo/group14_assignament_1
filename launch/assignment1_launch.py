@@ -36,7 +36,6 @@ def generate_launch_description():
         'camera_36h11.launch.yml'
     )
 
-
     apriltag_group = GroupAction(
         actions=[
             # Remapping of camera nodes  
@@ -54,13 +53,13 @@ def generate_launch_description():
         ]
     )
 
-    #this needs to be changed
-    #Launch for the server
+    # Nodes
+
     cervellone = Node(
         package='group14_assignment_1',
         executable='cervellone',  
-        output='screen',  # Shows print/log statements in the terminal
-        parameters = [{'use_sim_time': 'true'}]
+        output='screen',
+        parameters = [{'use_sim_time': True}]
     )
 
     corridor_detector = Node(
@@ -73,7 +72,7 @@ def generate_launch_description():
         package='group14_assignment_1',
         executable='apriltags_detection',  
         output='screen',
-        parameters = [{'use_sim_time': 'true'}]
+        parameters = [{'use_sim_time': True}]
     )
 
     corridor_navigator = Node(
@@ -99,9 +98,9 @@ def generate_launch_description():
         apriltag_group,
         cervellone,
         apriltags_detection,
+        laser_scan_clustering,
         corridor_detector,
         corridor_navigator,
-        laser_scan_clustering,
         cylinders_finder
     ])
 
