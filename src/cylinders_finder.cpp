@@ -21,6 +21,16 @@ CylindersFinder::CylindersFinder(const rclcpp::NodeOptions &options)
             rclcpp::QoS(10),
             std::bind(&CylindersFinder::process_clustered_scan_, this, std::placeholders::_1));
 
+    // Service server configuration to respond to tables requests
+    RCLCPP_INFO(this->get_logger(), "Creating 'look_for_tables' service...");
+    service_ = this->create_service<group14_interfaces::srv::LookForTables>(
+        "look_for_tables",
+        std::bind(
+            &CylindersFinder::look_for_tables_callback,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2));
+
     // Initialize a marker publisher to show the detected tables during the robot motion
     table_markers_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("table_markers_topic", 10);
 }
@@ -157,6 +167,23 @@ std::optional<geometry_msgs::msg::TransformStamped> CylindersFinder::transform_(
     {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Transform not available: %s", ex.what());
         return std::nullopt;
+    }
+}
+
+void CylindersFinder::look_for_tables_callback(
+    const std::shared_ptr<group14_interfaces::srv::LookForTables::Request> request,
+    std::shared_ptr<group14_interfaces::srv::LookForTables::Response> response)
+{
+    (void)request;
+    for (Table &table : tables_)
+    {
+        if (table.num_detections > NUM_DETECTIONS_THRESHOLD)
+        {
+            group14_interfaces::msg::Table table_msg;
+            table_msg.center = table.circle.center;
+            table_msg.radius = table.circle.r;
+            response.get()->tables.push_back(table_msg);
+        }
     }
 }
 
