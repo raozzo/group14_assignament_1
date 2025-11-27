@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED) 
 find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(group14_interfaces REQUIRED)
@@ -82,6 +83,8 @@ ament_target_dependencies(
   visualization_msgs 
   group14_interfaces        
 )
+
+
 
 add_executable(corridor_navigator src/corridor_navigator.cpp)
 ament_target_dependencies(

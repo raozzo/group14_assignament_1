@@ -23,6 +23,8 @@
   <depend>sensor_msgs</depend>
   <depend>apriltag_msgs</depend>
   <depend>group14_interfaces</depend>
+  
+  <depend>libstdc++</depend> 
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

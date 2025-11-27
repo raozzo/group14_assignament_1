@@ -25,7 +25,7 @@ public:
         // 3. Setup Timer for continuous publishing
         // The timer publishes velocity commands only if in_corridor_ is true.
         publish_timer_ = this->create_wall_timer(
-            100ms, 
+            50ms, 
             std::bind(&CorridorNavigator::publish_cmd_vel, this)
         );
 
@@ -58,22 +58,11 @@ private:
         } else if (msg->data == false && in_corridor_) {
             // FALSE Signal: CORRIDOR END
             in_corridor_ = false;
-            // Publish Twist with 0 velocity to ensure a full stop
-            stop_movement(); 
-            RCLCPP_INFO(this->get_logger(), "Corridor END detected. Stopping movement.");
+            RCLCPP_INFO(this->get_logger(), "Corridor END detected.");
+      
         }
     }
     
-    /**
-     * @brief Publishes a Twist message with zero linear velocity.
-     */
-    void stop_movement()
-    {
-        auto twist_msg = geometry_msgs::msg::Twist();
-        twist_msg.linear.x = 0.0;
-        twist_msg.angular.z = 0.0;
-        cmd_vel_pub_->publish(twist_msg);
-    }
 
     /**
      * @brief Continuously publishes velocity to /cmd_vel if in_corridor_ is true.
