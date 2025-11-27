@@ -54,20 +54,26 @@ def generate_launch_description():
         ]
     )
 
-
-
     #this needs to be changed
     #Launch for the server
     cervellone = Node(
         package='group14_assignment_1',
         executable='cervellone',  
-        output='screen'  # Shows print/log statements in the terminal
+        output='screen',  # Shows print/log statements in the terminal
+        parameters = [{'use_sim_time': 'true'}]
     )
 
     corridor_detector = Node(
         package='group14_assignment_1',
         executable='corridor_detector',  
         output='screen'
+    )
+    
+    apriltags_detection = Node(
+        package='group14_assignment_1',
+        executable='apriltags_detection',  
+        output='screen',
+        parameters = [{'use_sim_time': 'true'}]
     )
 
     corridor_navigator = Node(
@@ -92,11 +98,11 @@ def generate_launch_description():
         include_assignment_1_launch,
         apriltag_group,
         cervellone,
+        apriltags_detection,
         corridor_detector,
         corridor_navigator,
         laser_scan_clustering,
         cylinders_finder
-        #burrow_client
     ])
 
 

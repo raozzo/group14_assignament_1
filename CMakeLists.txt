@@ -67,9 +67,21 @@ add_executable(corridor_navigator src/corridor_navigator.cpp)
 ament_target_dependencies(
   corridor_navigator
   rclcpp
-  std_msgs             
-  geometry_msgs        
+  std_msgs
+  geometry_msgs
 )
+
+add_executable(apriltags_detection src/apriltags_detection.cpp)
+ament_target_dependencies(
+  apriltags_detection
+  rclcpp
+  tf2_ros
+  tf2_geometry_msgs
+  geometry_msgs
+  nav2_msgs
+  apriltag_msgs
+)
+
 
 # Install launch files
 install(DIRECTORY
@@ -85,7 +97,7 @@ install(DIRECTORY include/
 
 #install cervellone
 install(TARGETS
-  cervellone cylinders_finder laser_scan_clustering corridor_detector corridor_navigator
+  cervellone cylinders_finder laser_scan_clustering corridor_detector corridor_navigator apriltags_detection
   DESTINATION lib/${PROJECT_NAME}
 )
 
