@@ -71,12 +71,6 @@ class Cervellone : public rclcpp::Node
     // start a thread to wait for apriltag //INFO: this is to eliminate the need of hard startup timer 
     startup_thread_ = std::thread(&Cervellone::wait_for_services_and_startup, this);
 
-    //when apriltags are detected
-    apriltags_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>(
-            "/apriltag/detections",
-            rclcpp::SensorDataQoS(),
-            std::bind(&Cervellone::apriltag_callback, this, std::placeholders::_1));
-
     //when corridor is detected
     RCLCPP_INFO(this->get_logger(), "Subscribing to /corridor_trigger topic.");
     this->corridor_sub_ = this->create_subscription<std_msgs::msg::Bool>(
@@ -127,14 +121,17 @@ class Cervellone : public rclcpp::Node
   private:
   //initialize robot position to do 2dPose
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pose_pub_;
-  rclcpp::TimerBase::SharedPtr init_timer_;
+  rclcpp::TimerBase::SharedPtr init_timer_; //FIX: maybe not longer needed
+  rclcpp::TimerBase::SharedPtr timer_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
    
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr corridor_sub_;
 
-  GoalHandleNav::SharedPtr current_goal_handle_;
+  GoalHandleNav::SharedPtr current_goal_handle_; //FIX: maybe not needed
+
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_subscription_;
   // Store the target pose so we can re-send it later
-  geometry_msgs::msg::PoseStamped active_target_pose_;
+  geometry_msgs::msg::PoseStamped most_recent_goal_pose_;
   // Flag to know if we are currently paused
   bool is_navigation_paused_ = false;
   
@@ -147,7 +144,6 @@ class Cervellone : public rclcpp::Node
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
   
   rclcpp::Subscription<apriltag_msgs::msg::AprilTagDetectionArray>::SharedPtr apriltags_sub_; 
   
@@ -155,9 +151,9 @@ class Cervellone : public rclcpp::Node
   bool goal_sent_ = false;
   bool apriltags_available = false;
   bool has_goal_ = false;
-
-  std::string TAG1_FRAME_ID = "tag36h11:10"; 
-  std::string TAG2_FRAME_ID = "tag36h11:1";
+  bool navigation_ready_ = false; 
+  std::string TAG1_FRAME_ID = "tag36h11:1"; 
+  std::string TAG2_FRAME_ID = "tag36h11:10";
   const int TAG1_ID = 1;
   const int TAG2_ID = 10;
 
@@ -205,33 +201,7 @@ class Cervellone : public rclcpp::Node
     startup_full_stack();
   }
 
-  void apriltag_callback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg)
-  {
-    if (msg->detections.empty() || goal_sent_) {return;}
-
-    bool tag1_detected = false;
-    bool tag2_detected = false;
-
-    for (const apriltag_msgs::msg::AprilTagDetection &tag : msg->detections)
-    {
-      if (tag.id == TAG1_ID)
-        {tag1_detected = true;}
-      if (tag.id == TAG2_ID)
-        {tag2_detected = true;}
-    }
-    if (tag1_detected && tag2_detected)
-    {
-      //if i found both it means that are avaiable 
-      apriltags_available = true;
-      //I then calclate the goal
-      calculate_goal(msg->header);
-    }
-    else
-    {
-      apriltags_available = false;
-    }
-  }
-
+  
   void startup_full_stack()
   {
     // we theoretically do not need this wait anymore
@@ -335,51 +305,7 @@ class Cervellone : public rclcpp::Node
        RCLCPP_WARN(this->get_logger(), "Cannot transform %s to odom: %s", label.c_str(), ex.what());
     }
   }
-
-  void calculate_goal(const std_msgs::msg::Header header)
-  {
-    //If the goal is already sent i don't need to recompute it
-    if (goal_sent_) { return; } 
-    
-    bool tf_available = false;
-    geometry_msgs::msg::TransformStamped tf_tag1, tf_tag2;
-
-    try
-    {
-      tf_tag1 = tf_buffer_->lookupTransform(ODOM_FRAME_ID, TAG1_FRAME_ID, tf2::TimePointZero);
-      tf_tag2 = tf_buffer_->lookupTransform(ODOM_FRAME_ID, TAG2_FRAME_ID, tf2::TimePointZero);
-      tf_available = true;
-    }
-    catch (const tf2::TransformException &ex)
-    {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-          "Could not find transforms from %s or %s to %s: %s",
-          TAG1_FRAME_ID.c_str(),
-          TAG2_FRAME_ID.c_str(),
-          ODOM_FRAME_ID.c_str(),
-          ex.what()
-      );
-    }
-
-    if (tf_available)
-    {
-      RCLCPP_INFO(this->get_logger(), "Calculating midpoint between apriltags");
-      geometry_msgs::msg::PoseStamped mid_point_odom;
-      mid_point_odom.header.stamp = header.stamp;
-      mid_point_odom.header.frame_id = ODOM_FRAME_ID;
-      mid_point_odom.pose.position.x = (tf_tag1.transform.translation.x + tf_tag2.transform.translation.x) / 2.0;
-      mid_point_odom.pose.position.y = (tf_tag1.transform.translation.y + tf_tag2.transform.translation.y) / 2.0;
-      mid_point_odom.pose.position.z = 0.0;
-      mid_point_odom.pose.orientation.w = 1.0;
-
-      RCLCPP_INFO(this->get_logger(), ">>> FINAL GOAL: [x: %.2f, y: %.2f] <<<",
-          mid_point_odom.pose.position.x, mid_point_odom.pose.position.y);
-      has_goal_ = true;
-      goal_ = mid_point_odom;
-    }
-  } 
-
-  
+   
   // Request to table service 
   void request_table_detection()
   {
@@ -490,19 +416,18 @@ class Cervellone : public rclcpp::Node
       return;
     }
     
-    nav2_msgs::action::NavigateToPose::Goal g;
     auto goal_msg = NavigateToPose::Goal();
-    goal_msg.pose =most_recent_goal_pose; 
-
-    RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
-
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
-    
+    goal_msg.pose = most_recent_goal_pose_; 
+
+    //RCLCPP_INFO(this->get_logger(), "Sending goal to Nav2...");
+
+    //FIX: no loner needed since we update the goal every 3s
     //Save the goal in case of stop/resume 
-    this->active_target_pose_ = goal_;
+    //this->active_target_pose_ = goal_;
 
     // Callback when goal is accepted/rejected
-    send_goal_options.goal_response_callback = [this](const GoalHandleNav::SharedPtr &goal_handle) {
+    send_goal_options.goal_response_callback = [this, goal_msg](const GoalHandleNav::SharedPtr &goal_handle) {
       if (!goal_handle) {
         RCLCPP_ERROR(this->get_logger(), "GOAL REJECTED");
       } else {
@@ -518,7 +443,7 @@ class Cervellone : public rclcpp::Node
 
     //NOTE:
     // Callback when navigation is finished
-    send_goal_options.result_callback = [this](const GoalHandleNav::WrappedResult & result)
+    send_goal_options.result_callback = [this, goal_msg](const GoalHandleNav::WrappedResult & result)
     {
       switch (result.code)
       {
