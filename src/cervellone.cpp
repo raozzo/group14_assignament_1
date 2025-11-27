@@ -316,8 +316,10 @@ class Cervellone : public rclcpp::Node
 
     RCLCPP_WARN(this->get_logger(), "Stopping Robot...");
 
+    // Stop reading new goals from the goal_in_map_frame topic
+    timer_->cancel();
+
     // Cancel the goal
-    //TODO:  controlla cancellazione 
     this->nav_client_->async_cancel_goal(this->current_goal_handle_, [this](const auto & cancel_response) { // Callback function
       if (cancel_response->return_code == action_msgs::srv::CancelGoal::Response::ERROR_NONE) 
       {
@@ -332,7 +334,6 @@ class Cervellone : public rclcpp::Node
     });
   }
 
-
   void resume_navigation()
   {
     if (!this->is_navigation_paused_) {
@@ -342,9 +343,10 @@ class Cervellone : public rclcpp::Node
 
     RCLCPP_INFO(this->get_logger(), "End of corridor resuming navigation to original target...");
 
-    // send again the saved pose
+    // send again the most recent goal from the goal_in_map_frame topic
     send_goal_to_nav2();
-    
+    timer_->reset();  // reload the periodic goal update
+
     this->is_navigation_paused_ = false;
   }
   
