@@ -9,7 +9,7 @@ LaserScanClustering::LaserScanClustering(const rclcpp::NodeOptions &options)
     RCLCPP_INFO(this->get_logger(), "LaserScan clustering node has been started.");
 
     // TF2 listener initialization
-    RCLCPP_INFO(this->get_logger(), "Initializing TF2 listener");
+    RCLCPP_DEBUG(this->get_logger(), "Initializing TF2 listener");
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -43,7 +43,7 @@ void LaserScanClustering::initial_pose_callback_(
     RCLCPP_INFO(this->get_logger(), "Initial pose received. Starting logic...");
 
     // Subscription to LIDAR data
-    RCLCPP_INFO(this->get_logger(), "Subscribing to /scan topic");
+    RCLCPP_DEBUG(this->get_logger(), "Subscribing to /scan topic");
     lidar_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         "/scan",
         rclcpp::QoS(10),

@@ -41,7 +41,7 @@ class Cervellone : public rclcpp::Node
   Cervellone(): Node("cervellone")
   {
     //info that i'm starting the lifecicle manager client 
-    RCLCPP_INFO(this->get_logger(), "Nav2 lifecylcle managar client");
+    RCLCPP_INFO(this->get_logger(), "Nav2 lifecylcle managar client initialization.");
    
     //Client for localization and navigation stack 
     client_localization_ = this->create_client<ManageLifecycleNodes>(
@@ -87,10 +87,8 @@ class Cervellone : public rclcpp::Node
     );
     
      
-    RCLCPP_INFO(this->get_logger(),"Client initialization for table detections ");
+    RCLCPP_INFO(this->get_logger(),"Client initialization for tables detection service");
     table_client_ = this->create_client<LookForTables>("look_for_tables");
-
-    RCLCPP_INFO(this->get_logger(), "Cervellone pensa. aspettando le tags..."); 
   }//INFO:END OF CONTRUCTOR 
   
 
@@ -115,6 +113,7 @@ class Cervellone : public rclcpp::Node
   rclcpp::Client<ManageLifecycleNodes>::SharedPtr client_navigation_;
   
   rclcpp::Client<LookForTables>::SharedPtr table_client_;
+  rclcpp::TimerBase::SharedPtr delay_before_tables_request;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -184,7 +183,6 @@ class Cervellone : public rclcpp::Node
         RCLCPP_INFO(this->get_logger(), "Publishing Initial pose");
         this-> set_initial_pose();
 
-        RCLCPP_INFO(this->get_logger(), "starting navigation stack");
         this->startup_navigation();
       }
       else 
@@ -271,8 +269,6 @@ class Cervellone : public rclcpp::Node
 
     auto request = std::make_shared<LookForTables::Request>();
         
-    RCLCPP_INFO(this->get_logger(), "Requesting Table Detection");
-
     // Send request asynchronously
     auto future_result = table_client_->async_send_request(request,
         std::bind(&Cervellone::process_tables_response, this, std::placeholders::_1));
@@ -327,7 +323,7 @@ class Cervellone : public rclcpp::Node
         //it's actually cancelled so i can pause 
         this->is_navigation_paused_ = true;          
       } else {
-        RCLCPP_ERROR(this->get_logger(), "STOP FAILED: Cancellation rejecte");
+        RCLCPP_ERROR(this->get_logger(), "STOP FAILED: Cancellation rejected");
         //HACK:retry
         stop_navigation();
       }
@@ -341,7 +337,7 @@ class Cervellone : public rclcpp::Node
       return;
     }
 
-    RCLCPP_INFO(this->get_logger(), "End of corridor resuming navigation to original target...");
+    RCLCPP_INFO(this->get_logger(), "End of corridor: resuming navigation to original target...");
 
     // send again the most recent goal from the goal_in_map_frame topic
     send_goal_to_nav2();
@@ -354,11 +350,11 @@ class Cervellone : public rclcpp::Node
   {
     if (msg->data) {
       // TRUE = Corridor Ended -> STOP
-      RCLCPP_WARN(this->get_logger(), "Manual Trigger: STOPPING for Corridor!");
+      RCLCPP_WARN(this->get_logger(), "Manual Trigger: STOPPING navigation for corridor detection!");
       this->stop_navigation();
     } else {
       // FALSE = Corridor ended -> RESUME
-      RCLCPP_INFO(this->get_logger(), "Manual Trigger: RESUMING Navigation!");
+      RCLCPP_INFO(this->get_logger(), "Manual Trigger: RESUMING navigation!");
       this->resume_navigation();
     }
   }
@@ -383,7 +379,7 @@ class Cervellone : public rclcpp::Node
         // save the goal handle and bool update 
         this->current_goal_handle_ = goal_handle; 
         this->is_navigation_paused_ = false; // Reset pause flag
-        RCLCPP_INFO(this->get_logger(), "Goal [odom: %lf, %lf; time %d] accepted by server, waiting for result",
+        RCLCPP_INFO(this->get_logger(), "Goal [odom: %lf, %lf; time %ds] accepted by server, waiting for result",
             goal_msg.pose.pose.position.x,
             goal_msg.pose.pose.position.y,
             goal_msg.pose.header.stamp.sec);
@@ -397,27 +393,36 @@ class Cervellone : public rclcpp::Node
       switch (result.code)
       {
         case rclcpp_action::ResultCode::SUCCEEDED:
-          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation SUCCEEDED!",
+          RCLCPP_INFO(this->get_logger(), "Result of previous navigation to goal [odom: %lf, %lf; time %ds]: Navigation SUCCEEDED!",
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
           timer_->cancel(); // Stop setting new goals
-          this->request_table_detection();
+
+          // wait for 3s, then send a request to the tables detection service
+          RCLCPP_INFO(this->get_logger(), "Requesting Table Detection");
+          delay_before_tables_request = this->create_wall_timer(
+              3.0s,
+              [this]()
+              {
+                this->request_table_detection();
+                delay_before_tables_request->cancel();
+              });
           break;
         case rclcpp_action::ResultCode::ABORTED:
-          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation ABORTED!",
+          RCLCPP_INFO(this->get_logger(), "Result of previous navigation to goal [odom: %lf, %lf; time %ds]: Navigation ABORTED!",
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
           break;
         case rclcpp_action::ResultCode::CANCELED:
-          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Navigation CANCELED!",
+          RCLCPP_INFO(this->get_logger(), "Result of previous navigation to goal [odom: %lf, %lf; time %ds]: Navigation CANCELED!",
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
           break;
         default:
-          RCLCPP_INFO(this->get_logger(), "Result of Goal [odom: %lf, %lf; time %d]: Unknown result!",
+          RCLCPP_WARN(this->get_logger(), "Result of previous navigation to goal [odom: %lf, %lf; time %ds]: Unknown result!",
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
@@ -432,7 +437,6 @@ class Cervellone : public rclcpp::Node
   /* REACTION TO GOALS*/
   void goal_callback_(const geometry_msgs::msg::PoseStamped &goal)
   {
-    // RCLCPP_INFO(this->get_logger(), "Goal received.");
     most_recent_goal_pose_ = goal;
   }
 };
