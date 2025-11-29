@@ -100,15 +100,15 @@ private:
         const auto& p1 = cluster.points.front().point.point;
         const auto& p2 = cluster.points.back().point.point;
 
-        // Check minimum Length (Wall segment must be long enough)
+        // Check minimum Length (wall segment must be long enough)
         double segment_length = std::hypot(p2.x - p1.x, p2.y - p1.y);
+        RCLCPP_DEBUG(this->get_logger(), "Cluster #%d segment length: %.3fm", cluster_id, segment_length);
         if (segment_length < MIN_WALL_SEGMENT_LENGTH) {
             RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: Too short (Length: %.2fm).", cluster_id, segment_length);
             return false;
         }
 
-        // Check Linearity based on Y-variation (NEW LOGIC)
-        // Find the maximum and minimum Y values in the cluster.
+        // Check Linearity based on Y-variation
         double max_y_cluster = -std::numeric_limits<double>::infinity(); 
         double min_y_cluster = std::numeric_limits<double>::infinity();  
 
@@ -130,7 +130,7 @@ private:
 
 
         if (y_variation > MAX_Y_VARIATION) {
-            RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: Too vertically curved/wide (Y Variation: %.2fm).", cluster_id, y_variation);
+            RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: too vertically curved/wide (Y Variation: %.2fm).", cluster_id, y_variation);
             return false;
         }
 
@@ -146,11 +146,11 @@ private:
             return false;
         }
 
-        double max_left_y = -std::numeric_limits<double>::infinity(); 
-        double min_right_y = std::numeric_limits<double>::infinity();  
+        double max_right_y = -std::numeric_limits<double>::infinity(); 
+        double min_left_y = std::numeric_limits<double>::infinity();  
         
-        bool left_wall_found = false;
         bool right_wall_found = false;
+        bool left_wall_found = false;
 
         int cluster_id = 0; // Cluster counter for logging
 
@@ -160,21 +160,21 @@ private:
                 const auto& p_start = cluster.points.front().point.point;
                 const auto& p_end = cluster.points.back().point.point;
                 RCLCPP_DEBUG(this->get_logger(), 
-                    "--- START Processing Cluster #%d --- Size=%zu, Start=(%.2f, %.2f), End=(%.2f, %.2f)",
+                    "----START processing Cluster #%d---- Size=%zu, Start=(%.2f, %.2f), End=(%.2f, %.2f)",
                     cluster_id, cluster.points.size(), p_start.x, p_start.y, p_end.x, p_end.y);
             } else {
-                RCLCPP_DEBUG(this->get_logger(), "--- START Processing Cluster #%d --- Empty.", cluster_id);
+                RCLCPP_DEBUG(this->get_logger(), "----START processing Cluster #%d---- Empty.", cluster_id);
             }
 
 
-            // Basic size check
+            // Basic cluster size check
             if (cluster.points.size() < MIN_WALL_CLUSTER_SIZE) {
                 RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: Too small (Size: %zu).", cluster_id, cluster.points.size());
                 cluster_id++;
                 continue;
             }
             
-            // Geometric Validation
+            // Geometric validation
             if (!validate_wall_segment(cluster, cluster_id)) {
                 cluster_id++;
                 continue;
@@ -187,35 +187,35 @@ private:
             double avg_y = sum_y / cluster.points.size();
 
             // Side check
-            if (avg_y < -Y_SIDE_THRESHOLD) { // Potential LEFT Wall (Negative Y)
-                if (left_wall_found){
-                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d: potential left wall unuseful, a left candidate was already accepted (Avg Y: %.2f).", cluster_id, avg_y);
-                    cluster_id++;
-                    continue;
-                }
-                else {   
-                    left_wall_found = true;
-                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d accepted as LEFT wall candidate (Avg Y: %.2f).", cluster_id, avg_y);
-                    // Find the point closest to the center line (max Y value)
-                    for (const auto &rp : cluster.points) {
-                        if (rp.point.point.y > max_left_y) {
-                            max_left_y = rp.point.point.y;
-                        }
-                    }
-                }
-            } else if (avg_y > Y_SIDE_THRESHOLD) { // Potential RIGHT Wall (Positive Y)
+            if (avg_y < -Y_SIDE_THRESHOLD) { // Potential right wall (Negative Y)
                 if (right_wall_found){
                     RCLCPP_DEBUG(this->get_logger(), "Cluster #%d: potential right wall unuseful, a right candidate was already accepted (Avg Y: %.2f).", cluster_id, avg_y);
                     cluster_id++;
                     continue;
                 }
-                else {
+                else {   
                     right_wall_found = true;
-                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d accepted as RIGHT wall candidate (Avg Y: %.2f).", cluster_id, avg_y);
+                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d accepted as right wall candidate (Avg Y: %.2f).", cluster_id, avg_y);
+                    // Find the point closest to the center line (max Y value)
+                    for (const auto &rp : cluster.points) {
+                        if (rp.point.point.y > max_right_y) {
+                            max_right_y = rp.point.point.y;
+                        }
+                    }
+                }
+            } else if (avg_y > Y_SIDE_THRESHOLD) { // Potential left wall (Positive Y)
+                if (left_wall_found){
+                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d: potential left wall unuseful, a left candidate was already accepted (Avg Y: %.2f).", cluster_id, avg_y);
+                    cluster_id++;
+                    continue;
+                }
+                else {
+                    left_wall_found = true;
+                    RCLCPP_DEBUG(this->get_logger(), "Cluster #%d accepted as left wall candidate (Avg Y: %.2f).", cluster_id, avg_y);
                     // Find the point closest to the center line (min Y value)
                     for (const auto &rp : cluster.points) {
-                        if (rp.point.point.y < min_right_y) {
-                            min_right_y = rp.point.point.y;
+                        if (rp.point.point.y < min_left_y) {
+                            min_left_y = rp.point.point.y;
                         }
                     }
                 }
@@ -227,16 +227,16 @@ private:
         }
         
         // Final Condition Check (Requires both walls to be found)
-        if (!left_wall_found || !right_wall_found) {
-            RCLCPP_DEBUG(this->get_logger(), "Corridor failed: Left (%s) or Right (%s) wall not found.", 
-                left_wall_found ? "found" : "missing", right_wall_found ? "found" : "missing");
+        if (!right_wall_found || !left_wall_found) {
+            RCLCPP_DEBUG(this->get_logger(), "Corridor failed: right (%s) or left (%s) wall not found.", 
+                right_wall_found ? "found" : "missing", left_wall_found ? "found" : "missing");
             return false;
         }
 
         // Check the distance (width) between the closest points of the two walls
-        double measured_width = min_right_y - max_left_y;
+        double measured_width = min_left_y - max_right_y;
         
-        RCLCPP_DEBUG(this->get_logger(), "Corridor check: Measured Width: %.2fm (Limits: %.1f-%.1f)", 
+        RCLCPP_DEBUG(this->get_logger(), "Corridor check: measured width: %.2fm (Limits: %.1f-%.1f)", 
             measured_width, MIN_CORRIDOR_WIDTH, MAX_CORRIDOR_WIDTH);
 
         if (measured_width >= MIN_CORRIDOR_WIDTH && measured_width <= MAX_CORRIDOR_WIDTH) {
