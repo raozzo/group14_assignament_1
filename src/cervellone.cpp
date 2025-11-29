@@ -215,7 +215,7 @@ class Cervellone : public rclcpp::Node
     // This sets a small variance (high confidence) in X, Y, and Yaw
     msg.pose.covariance[0] = 0.25;  // X variance
     msg.pose.covariance[7] = 0.25;  // Y variance
-    msg.pose.covariance[35] = 0.06; // Yaw variance
+    msg.pose.covariance[35] = 0.05; // Yaw variance
 
     RCLCPP_INFO(this->get_logger(), "Publishing Initial Pose to AMCL");
     init_pose_pub_->publish(msg);
