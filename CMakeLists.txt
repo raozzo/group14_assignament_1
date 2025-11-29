@@ -92,6 +92,9 @@ ament_target_dependencies(
   rclcpp
   std_msgs
   geometry_msgs
+  nav_msgs
+  tf2
+  tf2_geometry_msgs
 )
 
 add_executable(apriltags_detection src/apriltags_detection.cpp)
