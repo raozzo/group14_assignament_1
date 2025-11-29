@@ -427,7 +427,7 @@ class Cervellone : public rclcpp::Node
               });
           break;
         case rclcpp_action::ResultCode::ABORTED:
-          RCLCPP_INFO(this->get_logger(), "Result of previous navigation to goal [odom: %lf, %lf; time %ds]: Navigation ABORTED!",
+          RCLCPP_INFO(this->get_logger(), "Previous navigation ABORTED [odom: %lf, %lf; time %ds] (new goal received)!",
               goal_msg.pose.pose.position.x,
               goal_msg.pose.pose.position.y,
               goal_msg.pose.header.stamp.sec);
