@@ -20,9 +20,6 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(assignment_1_launch_file),
         launch_arguments={
             'use_sim_time': 'true',
-            #from the tutor launch we can see it exposes ab autostart flag for the nav stack
-            #FIX: non si puo usare autostart
-            #'autostart': 'True'
         }.items()
     )
     
@@ -35,10 +32,11 @@ def generate_launch_description():
         'launch',
         'camera_36h11.launch.yml'
     )
-
+    #Aproltag launch arguments 
     apriltag_group = GroupAction(
         actions=[
             # Remapping of camera nodes  
+            # Since there is no distrotion we can use directrly the image 
             SetRemap(src='image_rect', dst='/rgb_camera/image'),
             SetRemap(src='camera_info', dst='/rgb_camera/camera_info'),
             
@@ -53,8 +51,9 @@ def generate_launch_description():
         ]
     )
 
-    # Nodes
+    #----------- Nodes-----------------
 
+    #Cervellone 
     cervellone = Node(
         package='group14_assignment_1',
         executable='cervellone',  
@@ -92,7 +91,8 @@ def generate_launch_description():
         executable='laser_scan_clustering',  
         output='screen'
     )
-
+    
+    #Launch
     return LaunchDescription([
         include_assignment_1_launch,
         apriltag_group,

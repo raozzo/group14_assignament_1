@@ -128,10 +128,10 @@ class Cervellone : public rclcpp::Node
   std::string MAP_FRAME_ID = "map";
   std::string ODOM_FRAME_ID = "odom";
 
-
   //INFO: --------STARTUP WAITING---------
   std::thread startup_thread_;
-
+  
+  //this function wait to the lifecyle managar to be avaiable, then it start the full stack 
   void wait_for_services_and_startup()
   {
     RCLCPP_INFO(this->get_logger(), "STARTUP THREAD: Waiting for lifecycle managers to be available...");
@@ -167,8 +167,12 @@ class Cervellone : public rclcpp::Node
     //since now are ready we start the full stack  thanks to the helper function 
     startup_full_stack();
   }
+   
+  //INFO: Localization and navigation startup 
 
-  
+  //This function startuo the localization stack, when it's ready it call the function to:
+  //  - set the initial pose
+  //  - start up the navigation stack 
   void startup_full_stack()
   {
     auto request = std::make_shared<ManageLifecycleNodes::Request>();
@@ -216,7 +220,8 @@ class Cervellone : public rclcpp::Node
     RCLCPP_INFO(this->get_logger(), "Publishing Initial Pose to AMCL");
     init_pose_pub_->publish(msg);
   }
-
+ 
+  //this function send the startup message to the nav2 stack and check if it actually starts 
   void startup_navigation()
   {
     auto request = std::make_shared<ManageLifecycleNodes::Request>();
@@ -237,6 +242,8 @@ class Cervellone : public rclcpp::Node
     });
   }
   
+  //INFO: Odom trasformation 
+
   //function to transform from map to odom
   void log_pose_in_odom(geometry_msgs::msg::PoseStamped input_pose, std::string label)
   {
@@ -259,6 +266,8 @@ class Cervellone : public rclcpp::Node
     }
   }
    
+  //INFO: Table detection
+
   // Request to table service 
   void request_table_detection()
   {
@@ -274,7 +283,7 @@ class Cervellone : public rclcpp::Node
         std::bind(&Cervellone::process_tables_response, this, std::placeholders::_1));
   }
 
-  //Handle response 
+  //Handle response (the response is a vector we want to send the transform helper function a single pose) 
   void process_tables_response(rclcpp::Client<LookForTables>::SharedFuture future)
   {
     auto result = future.get();
@@ -302,7 +311,10 @@ class Cervellone : public rclcpp::Node
         log_pose_in_odom(table_pose, label);
     }
   }
-   
+  
+  //INFO: corridor navigation manager 
+
+  //This function send the cancelation to nav2
   void stop_navigation()
   {
     if (!this->current_goal_handle_) {
@@ -329,7 +341,8 @@ class Cervellone : public rclcpp::Node
       }
     });
   }
-
+   
+  //When the corridor is ended we resum navigation by sending a goal to nav2 
   void resume_navigation()
   {
     if (!this->is_navigation_paused_) {
@@ -346,6 +359,7 @@ class Cervellone : public rclcpp::Node
     this->is_navigation_paused_ = false;
   }
   
+  //This function reads the state of the coridor and call helper function accordingly
   void corridor_callback(const std_msgs::msg::Bool::SharedPtr msg)
   {
     if (msg->data) {
@@ -358,6 +372,9 @@ class Cervellone : public rclcpp::Node
       this->resume_navigation();
     }
   }
+
+
+  //INFO: Goal sender
  
   // start navigation to goal 
   void send_goal_to_nav2()
