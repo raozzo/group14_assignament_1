@@ -20,9 +20,9 @@ const double TARGET_YAW = 0.0;
 const double CORRIDOR_LINEAR_VEL = 0.4; // Set the desired velocity (m/s) in the corridor when Nav2 navigation goal is temporarily canceled
 const double ALIGNMENT_THRESHOLD_Y = 0.1; // Tolerance for Y error (m) w.r.t. the target
 const double ALIGNMENT_THRESHOLD_YAW = 0.0003; // Tolerance for Yaw error (rad) w.r.t. the target
-const double K = 1.7;  // Multiplication constant of velocity to obtain a quicker alignment
-const double MAX_LINEAR_Y_VEL = 0.42; 
-const double MAX_ANGULAR_Z_VEL = 0.40; 
+const double K = 1.5;  // Multiplication constant of velocity to obtain a quicker alignment
+const double MAX_LINEAR_Y_VEL = 0.42;  // Threshold to avoid linear velocity to reach too high values
+const double MAX_ANGULAR_Z_VEL = 0.40; // Threshold to avoid angular velocity to reach too high values
 
 class CorridorNavigator : public rclcpp::Node
 {
@@ -40,7 +40,7 @@ public:
         );
 
         publish_timer_ = this->create_wall_timer(
-            300ms, 
+            150ms, 
             std::bind(&CorridorNavigator::publish_cmd_vel, this)
         );
         
@@ -120,23 +120,23 @@ private:
         if (in_corridor_) {
             auto twist_msg = geometry_msgs::msg::Twist();
             
-            // Re-aligment when nav2 goal is temporarily canceled in order to navigate the corridor starightforward
+            // Re-aligment when nav2 goal is temporarily canceled in order to navigate the corridor straightforward
             if (!aligned_) {
                 
-                // Calculate Lateral (Y) Error and Command
+                // Calculate lateral (Y) Error and Command
                 double error_y = TARGET_Y_MAP - current_y_;
-                
+                // Calculate the velocity basing it on the calculated error,  be sure that it doesn' t exceed pre-defined limiting values
                 double limited_lin_y = std::clamp(K * error_y, -MAX_LINEAR_Y_VEL, MAX_LINEAR_Y_VEL);
 
                 // Calculate angular (Yaw) error
                 double error_yaw = TARGET_YAW - current_yaw_; 
                 // Normalize error_yaw to be within [-pi, pi]
                 double error_norm = std::atan2(std::sin(error_yaw), std::cos(error_yaw));
-
+                // Calculate the velocity basing it on the calculated error,  be sure that it doesn' t exceed pre-defined limiting values
                 double limited_ang_z = std::clamp(K* error_norm, -MAX_ANGULAR_Z_VEL, MAX_ANGULAR_Z_VEL);
 
-                RCLCPP_INFO(this->get_logger(), "error_y: %.5f, error yaw normalized: %.6f", error_y, error_yaw);
-                RCLCPP_INFO(this->get_logger(), "limited lin y: %.5f, limited ang z: %.6f", limited_lin_y, limited_ang_z);
+                RCLCPP_INFO(this->get_logger(), "Actual distance to y target : %.5f, Actual normalized yaw error to the angular target: %.6f", error_y, error_yaw);
+                RCLCPP_INFO(this->get_logger(), "Y linear velocity signal: %.5f, Z angular velocity signal: %.6f", limited_lin_y, limited_ang_z);
                 
 
                 // Check if alignment is completed for both y target and yaw target
@@ -147,7 +147,7 @@ private:
 
                 // Publish alignment Command (X=0 during alignment)
                 if (!aligned_){
-                    twist_msg.linear.x = 0.0; // STOP X MOVEMENT
+                    twist_msg.linear.x = 0.0; // no X movements
                     twist_msg.linear.y = limited_lin_y;
                     twist_msg.angular.z = limited_ang_z;
                         
