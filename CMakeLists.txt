@@ -30,9 +30,9 @@ include_directories(
   ${Eigen3_INCLUDE_DIRS}
 )
 
-add_executable(cervellone src/cervellone.cpp)
+add_executable(task_manager src/task_manager.cpp)
 ament_target_dependencies(
-  cervellone
+  task_manager
   nav2_msgs
   rclcpp_action
   rclcpp
@@ -123,7 +123,7 @@ install(
 
 #install targets
 install(TARGETS
-  cervellone 
+  task_manager  
   apriltags_detection
   cylinders_finder 
   laser_scan_clustering 

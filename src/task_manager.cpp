@@ -27,7 +27,7 @@
 
 using namespace std::chrono_literals;
 
-class Cervellone : public rclcpp::Node
+class TaskManager : public rclcpp::Node
 {
   public:
   using ManageLifecycleNodes = nav2_msgs::srv::ManageLifecycleNodes;
@@ -38,7 +38,7 @@ class Cervellone : public rclcpp::Node
 
   
   //INFO:------------------- START CONSTRUCTOR-------------------------------
-  Cervellone(): Node("cervellone")
+  TaskManager(): Node("task_manager")
   {
     //info that i'm starting the lifecicle manager client 
     RCLCPP_INFO(this->get_logger(), "Nav2 lifecylcle managar client initialization.");
@@ -59,20 +59,20 @@ class Cervellone : public rclcpp::Node
         "/initialpose", 10);
     
     // start a thread to wait for apriltag //INFO: this is to eliminate the need of hard startup timer 
-    startup_thread_ = std::thread(&Cervellone::wait_for_services_and_startup, this);
+    startup_thread_ = std::thread(&TaskManager::wait_for_services_and_startup, this);
 
     //when corridor is detected
     RCLCPP_INFO(this->get_logger(), "Subscribing to /corridor_trigger topic.");
     this->corridor_sub_ = this->create_subscription<std_msgs::msg::Bool>(
             "/corridor_trigger",
             2,
-            std::bind(&Cervellone::corridor_callback, this, std::placeholders::_1));
+            std::bind(&TaskManager::corridor_callback, this, std::placeholders::_1));
      
     //Subscrbing to the apriltag publisher (in this topic we will receive the goal coordiantes)
     goal_subscription_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "goal_in_map_frame",
             10,
-            std::bind(&Cervellone::goal_callback_, this, std::placeholders::_1));
+            std::bind(&TaskManager::goal_callback_, this, std::placeholders::_1));
    
 
     // After 3s, start trying to send the goal to nav 2 
@@ -280,7 +280,7 @@ class Cervellone : public rclcpp::Node
         
     // Send request asynchronously
     auto future_result = table_client_->async_send_request(request,
-        std::bind(&Cervellone::process_tables_response, this, std::placeholders::_1));
+        std::bind(&TaskManager::process_tables_response, this, std::placeholders::_1));
   }
 
   //Handle response (the response is a vector we want to send the transform helper function a single pose) 
@@ -462,7 +462,7 @@ class Cervellone : public rclcpp::Node
 int main(int argc, char * argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<Cervellone>());
+    rclcpp::spin(std::make_shared<TaskManager>());
     rclcpp::shutdown();
     return 0;
 }

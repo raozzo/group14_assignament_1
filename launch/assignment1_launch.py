@@ -54,9 +54,9 @@ def generate_launch_description():
     #----------- Nodes-----------------
 
     #Cervellone 
-    cervellone = Node(
+    task_manager = Node(
         package='group14_assignment_1',
-        executable='cervellone',  
+        executable='task_manager',  
         output='screen',
         parameters = [{'use_sim_time': True}]
     )
@@ -96,7 +96,7 @@ def generate_launch_description():
     return LaunchDescription([
         include_assignment_1_launch,
         apriltag_group,
-        cervellone,
+        task_manager,
         apriltags_detection,
         laser_scan_clustering,
         corridor_detector,
