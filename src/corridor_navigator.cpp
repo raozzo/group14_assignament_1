@@ -6,9 +6,9 @@
 #include <memory>
 #include <functional>
 #include <cmath>
-#include <algorithm> // For std::clamp
-#include <tf2/LinearMath/Quaternion.h> // For quaternion conversion
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> // For quaternion conversion
+#include <algorithm> 
+#include <tf2/LinearMath/Quaternion.h> 
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> 
 
 using namespace std::chrono_literals;
 
@@ -68,10 +68,8 @@ private:
     rclcpp::TimerBase::SharedPtr publish_timer_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_; 
 
-    
-    /**
-     * @brief Converts a Quaternion message to Euler angles and returns the yaw.
-     */
+
+    // Converts a Quaternion message to Euler angles and returns the yaw.
     double get_yaw_from_quaternion(const geometry_msgs::msg::Quaternion& q)
     {
         tf2::Quaternion quat(q.x, q.y, q.z, q.w);
@@ -81,9 +79,8 @@ private:
         return yaw;
     }
 
-    /**
-     * @brief Callback called by /odom to update robot position and orientation.
-     */
+
+    // Callback called by /odom to update robot position and orientation.
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
         // Assuming /odom pose is in the global map frame
@@ -94,27 +91,39 @@ private:
     // Callback called by /corridor_trigger to change the navigation state.
     void corridor_trigger_callback(const std_msgs::msg::Bool::SharedPtr msg)
     {
+        // TRUE Signal: CORRIDOR START
         if (msg->data == true && !in_corridor_) {
-            // TRUE Signal: CORRIDOR START
+            
             in_corridor_ = true;
-            // Force re-alignment every time the corridor is entered
+
+            // Force re-alignment when the corridor is entered
             aligned_ = false; 
             RCLCPP_INFO(this->get_logger(), 
                 "Corridor START detected. Initiating alignment to Y=%.2f and Yaw=%.2f.", 
                 TARGET_Y_MAP, TARGET_YAW);
             
-        } else if (msg->data == false && in_corridor_) {
-            // FALSE Signal: CORRIDOR END
+        } 
+        // FALSE Signal: CORRIDOR END
+        else if (msg->data == false && in_corridor_) {
+            
+             // Cancel the timer to stop publishing on /cmd_vel
+            publish_timer_->cancel();
+
+            corridor_trigger_sub_.reset();
+
             in_corridor_ = false;
             aligned_ = false;
             RCLCPP_INFO(this->get_logger(), "Corridor END detected. Stopping movement.");
+
+            // Shutdown the node after corridor exit
+             RCLCPP_INFO(this->get_logger(), "---Shutting down the Corridor Navigator---");
+             rclcpp::shutdown();
+
         }
     }
     
-    /**
-     * @brief Continuously publishes velocity to /cmd_vel. Manages the alignment phase
-     * and the straight movement phase.
-     */
+
+    // Continuously publish velocity to /cmd_vel. Manages the alignment phase and the straight movement phase.
     void publish_cmd_vel()
     {
         if (in_corridor_) {
@@ -123,7 +132,7 @@ private:
             // Re-aligment when nav2 goal is temporarily canceled in order to navigate the corridor straightforward
             if (!aligned_) {
                 
-                // Calculate lateral (Y) Error and Command
+                // Calculate lateral (Y) error
                 double error_y = TARGET_Y_MAP - current_y_;
                 // Calculate the velocity basing it on the calculated error,  be sure that it doesn' t exceed pre-defined limiting values
                 double limited_lin_y = std::clamp(K * error_y, -MAX_LINEAR_Y_VEL, MAX_LINEAR_Y_VEL);
@@ -142,10 +151,10 @@ private:
                 // Check if alignment is completed for both y target and yaw target
                 if (std::abs(error_y) < ALIGNMENT_THRESHOLD_Y && std::abs(error_norm) < ALIGNMENT_THRESHOLD_YAW) {
                     aligned_ = true;
-                    RCLCPP_INFO(this->get_logger(), "Alignment complete. Moving forward (Linear X: %.1f).", CORRIDOR_LINEAR_VEL);
+                    RCLCPP_INFO(this->get_logger(), "Alignment complete. Moving forward with linear X velocity: %.1f).", CORRIDOR_LINEAR_VEL);
                 }
 
-                // Publish alignment Command (X=0 during alignment)
+                // Publish alignment command (X=0 during alignment)
                 if (!aligned_){
                     twist_msg.linear.x = 0.0; // no X movements
                     twist_msg.linear.y = limited_lin_y;

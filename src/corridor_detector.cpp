@@ -64,9 +64,16 @@ private:
         in_corridor_ = state; // Update internal state
 
         if (state) {
-             RCLCPP_INFO(this->get_logger(), "Corridor trigger on");
-        } else {
-             RCLCPP_INFO(this->get_logger(), "Corridor trigger off, corridor ended");
+             RCLCPP_INFO(this->get_logger(), "------Corridor trigger on------");
+        } 
+        else {
+             RCLCPP_INFO(this->get_logger(), "------Corridor trigger off, corridor ended------");
+             
+             clustered_scan_subscription_.reset();
+             
+             // Shutdown the node after corridor exit
+             RCLCPP_INFO(this->get_logger(), "------Shutting down the Corridor Detector------");
+             rclcpp::shutdown();
         }
     }
 
@@ -88,8 +95,6 @@ private:
     /**
      * @brief Performs simple geometric validation on a cluster to check if it represents a straight wall segment.
      * Checks for minimum length and maximum variation in Y (since the corridor is horizontal).
-     * @param cluster The cluster of points.
-     * @param cluster_id The index of the cluster being processed.
      * @return true if the cluster is linear and long enough, false otherwise.
      */
     bool validate_wall_segment(const group14_interfaces::msg::RangePointArray &cluster, int cluster_id)
@@ -104,7 +109,7 @@ private:
         double segment_length = std::hypot(p2.x - p1.x, p2.y - p1.y);
         RCLCPP_DEBUG(this->get_logger(), "Cluster #%d segment length: %.3fm", cluster_id, segment_length);
         if (segment_length < MIN_WALL_SEGMENT_LENGTH) {
-            RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: Too short (Length: %.2fm).", cluster_id, segment_length);
+            RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: too short (Length: %.2fm).", cluster_id, segment_length);
             return false;
         }
 
@@ -123,11 +128,6 @@ private:
         }
         
         double y_variation = max_y_cluster - min_y_cluster;
-        
-        RCLCPP_DEBUG(this->get_logger(), 
-            "Cluster #%d Y-Validation: Max Y=%.2fm, Min Y=%.2fm, Variation=%.2fm (Limit: %.2fm)", 
-            cluster_id, max_y_cluster, min_y_cluster, y_variation, MAX_Y_VARIATION);
-
 
         if (y_variation > MAX_Y_VARIATION) {
             RCLCPP_DEBUG(this->get_logger(), "Cluster #%d rejected: too vertically curved/wide (Y Variation: %.2fm).", cluster_id, y_variation);
@@ -137,9 +137,8 @@ private:
         return true;
     }
 
-    /*
-     * Simplified logic to determine if two parallel walls (corridor) are present.
-     */
+
+    //Simplified logic to determine if two parallel walls (corridor) are present.
     bool check_for_corridor_walls(const group14_interfaces::msg::ClusterArray::SharedPtr &clusters)
     {
         if (clusters->clusters.size() < 2) {
